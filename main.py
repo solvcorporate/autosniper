@@ -1,8 +1,8 @@
 import os
 import logging
 from dotenv import load_dotenv
-from telegram import Update, ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Load environment variables
 load_dotenv()
@@ -15,10 +15,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Command handlers
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message when the command /start is issued."""
     user = update.effective_user
-    update.message.reply_text(
+    await update.message.reply_text(
         f"👋 Hello {user.first_name}! Welcome to AutoSniper - your personal car deal hunter.\n\n"
         f"I scan multiple car listing sites to find vehicles priced significantly below market value, "
         f"giving you a competitive edge in spotting great deals before others.\n\n"
@@ -27,7 +27,7 @@ def start(update: Update, context: CallbackContext) -> None:
     
     # Here we'd save user information to Google Sheets - we'll implement this in Task 4
 
-def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
     help_text = (
         "🔍 *AutoSniper Commands:*\n\n"
@@ -42,9 +42,9 @@ def help_command(update: Update, context: CallbackContext) -> None:
         
         "Have questions? Contact us at support@autosniper.example.com"
     )
-    update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(help_text, parse_mode="MARKDOWN")
 
-def demo_command(update: Update, context: CallbackContext) -> None:
+async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show sample car alerts when the command /demo is issued."""
     # Sample car alert
     demo_alert1 = (
@@ -56,7 +56,7 @@ def demo_command(update: Update, context: CallbackContext) -> None:
         "➡️ [View Listing](https://example.com/listing)"
     )
     
-    update.message.reply_text(demo_alert1, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    await update.message.reply_text(demo_alert1, parse_mode="MARKDOWN", disable_web_page_preview=True)
     
     # Second sample alert
     demo_alert2 = (
@@ -68,7 +68,7 @@ def demo_command(update: Update, context: CallbackContext) -> None:
         "➡️ [View Listing](https://example.com/listing)"
     )
     
-    update.message.reply_text(demo_alert2, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    await update.message.reply_text(demo_alert2, parse_mode="MARKDOWN", disable_web_page_preview=True)
     
     # Explanation text
     explanation = (
@@ -77,26 +77,21 @@ def demo_command(update: Update, context: CallbackContext) -> None:
         "Ready to set up your car preferences? This feature will be available soon!"
     )
     
-    update.message.reply_text(explanation)
+    await update.message.reply_text(explanation)
 
-def main() -> None:
+async def main() -> None:
     """Start the bot."""
-    # Create the Updater and pass it your bot's token
-    updater = Updater(TELEGRAM_TOKEN)
-
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
+    # Create the Application and pass it your bot's token
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
     # Register command handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("demo", demo_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("demo", demo_command))
 
     # Start the Bot
-    updater.start_polling()
-
-    # Run the bot until you press Ctrl-C
-    updater.idle()
+    await application.run_polling()
 
 if __name__ == '__main__':
-    main()
+    import asyncio
+    asyncio.run(main())
