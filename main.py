@@ -79,8 +79,8 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     await update.message.reply_text(explanation)
 
-async def main() -> None:
-    """Start the bot."""
+def main():
+    """Start the bot without using asyncio.run() which can cause issues in some environments"""
     # Create the Application and pass it your bot's token
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -89,9 +89,8 @@ async def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("demo", demo_command))
 
-    # Start the Bot
-    await application.run_polling()
+    # Start the Bot - using a different approach that works better in cloud environments
+    application.run_polling()
 
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+    main()
