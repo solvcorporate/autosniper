@@ -62,8 +62,8 @@ class SheetsManager:
                 # Add headers
                 self.cars_sheet.append_row([
                     "user_id", "make", "model", "min_year", "max_year",
-                    "min_price", "max_price", "location", "created_at", 
-                    "updated_at", "status"
+                    "min_price", "max_price", "location", "fuel_type", "transmission",
+                    "created_at", "updated_at", "status"
                 ])
                 print("Created new Cars sheet")
             
@@ -160,7 +160,7 @@ class SheetsManager:
             print(f"Error updating subscription: {e}")
             return False
     
-    def add_car_preferences(self, user_id, make, model, min_year, max_year, min_price, max_price, location):
+    def add_car_preferences(self, user_id, make, model, min_year, max_year, min_price, max_price, location, fuel_type="Any", transmission="Any"):
         """Add or update car preferences for a user.
         
         Args:
@@ -172,26 +172,15 @@ class SheetsManager:
             min_price: Minimum price
             max_price: Maximum price
             location: User's location preference
+            fuel_type: Fuel type preference (optional)
+            transmission: Transmission preference (optional)
             
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            # Check if user already has car preferences
-            existing_rows = self.get_car_preferences(user_id)
-            
             # Current timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            if existing_rows:
-                # User already has preferences, update the status of all to 'inactive'
-                car_ids = self.cars_sheet.col_values(1)
-                for row in existing_rows:
-                    try:
-                        row_idx = [str(id) for id in car_ids].index(str(user_id)) + 1
-                        self.cars_sheet.update_cell(row_idx, 11, 'inactive')  # Set status to inactive
-                    except ValueError:
-                        continue
             
             # Add new preferences with 'active' status
             self.cars_sheet.append_row([
@@ -203,6 +192,8 @@ class SheetsManager:
                 min_price,
                 max_price,
                 location,
+                fuel_type,
+                transmission,
                 timestamp,  # created_at
                 timestamp,  # updated_at
                 'active'    # status
@@ -237,6 +228,39 @@ class SheetsManager:
         except Exception as e:
             print(f"Error getting car preferences: {e}")
             return []
+    
+    def set_preference_inactive(self, user_id, make, model):
+        """Set a specific car preference to inactive
+        
+        Args:
+            user_id: Telegram user ID
+            make: Car make to match
+            model: Car model to match
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Get all data from Cars sheet
+            all_data = self.cars_sheet.get_all_records()
+            
+            # Find the specific preference
+            for idx, row in enumerate(all_data):
+                if (str(row['user_id']) == str(user_id) and 
+                    row['make'] == make and 
+                    row['model'] == model and
+                    row.get('status', '') == 'active'):
+                    
+                    # Add 2 to account for header row and 0-indexing to 1-indexing
+                    row_idx = idx + 2
+                    # Status is in column M (13)
+                    self.cars_sheet.update_cell(row_idx, 13, 'inactive')
+                    return True
+            
+            return False
+        except Exception as e:
+            print(f"Error setting preference inactive: {e}")
+            return False
 
 # Helper function to create a sheets manager from environment variables
 def get_sheets_manager():
