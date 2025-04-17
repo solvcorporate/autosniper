@@ -263,6 +263,15 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
     
+    # Check if user selected an "Other" location option
+    if text == 'Ireland: Other' or text == 'UK: Other':
+        country = text.split(':')[0]  # Extract country part (Ireland or UK)
+        await update.message.reply_text(
+            f"Please specify which area in {country} you're interested in:"
+        )
+        # Stay in the same state to get the specific location
+        return LOCATION
+    
     # Save the location
     context.user_data['car_preferences']['location'] = text
     
@@ -280,7 +289,6 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
     )
     return CONFIRM
-
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle confirmation of car preferences."""
     text = update.message.text.lower()
