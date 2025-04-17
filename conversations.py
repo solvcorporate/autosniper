@@ -4,7 +4,6 @@ from telegram.ext import (
     MessageHandler, filters
 )
 import logging
-import asyncio
 
 # Enable logging
 logging.basicConfig(
@@ -64,19 +63,15 @@ ADVANCED_OPTIONS = [
 # Helper for loading animation
 async def loading_animation(update: Update, message_text: str, final_text: str):
     """Display a simple loading animation with dots."""
-    loading_message = await update.message.reply_text(f"{message_text}...")
+    message = await update.message.reply_text(f"{message_text}...")
     
-    for _ in range(3):
-        await asyncio.sleep(0.7)
-        await loading_message.edit_text(f"{message_text}...")
-        await asyncio.sleep(0.7)
-        await loading_message.edit_text(f"{message_text}..")
-        await asyncio.sleep(0.7)
-        await loading_message.edit_text(f"{message_text}.")
-        await asyncio.sleep(0.7)
-        await loading_message.edit_text(f"{message_text}")
+    # Just show dots appearing one by one
+    await message.edit_text(f"{message_text}..")
+    await message.edit_text(f"{message_text}...")
+    await message.edit_text(f"{message_text}....")
     
-    await loading_message.edit_text(final_text)
+    # Final message
+    await message.edit_text(final_text)
 
 async def start_car_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the car preferences conversation."""
@@ -611,12 +606,8 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     
     if text == 'yes':
-        # Show loading animation
-        await loading_animation(
-            update,
-            "Saving your preferences",
-            "Preferences saved successfully!"
-        )
+        # Simple saving message without animation
+        saving_message = await update.message.reply_text("Saving your preferences...")
         
         # Save to Google Sheets
         sheets_manager = context.bot_data['sheets_manager']
@@ -644,6 +635,9 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             fuel_type=fuel_type,
             transmission=transmission
         )
+        
+        # Update the saving message
+        await saving_message.edit_text("Preferences saved successfully!")
         
         if success:
             # Show sample alert based on preferences
@@ -735,7 +729,7 @@ def get_car_preferences_conversation(sheets_manager):
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            MessageHandler(filters.Regex('^[Cc]ancel$'), cancel)
+            MessageHandler(filters.Regex('^[Cc]ancel), cancel)
         ],
         name="car_preferences",
         persistent=False,
