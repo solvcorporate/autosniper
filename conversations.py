@@ -516,7 +516,7 @@ def get_car_preferences_conversation(sheets_manager):
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            MessageHandler(filters.Regex('^[Cc]ancel), cancel)
+            MessageHandler(filters.Regex('^[Cc]ancel$'), cancel)
         ],
         name="car_preferences",
         persistent=False
