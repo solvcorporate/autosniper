@@ -209,8 +209,18 @@ async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(
             "Please enter your custom year range in format 'MIN-MAX' (e.g., '2015-2020'):"
         )
-        return PRICE
+        # Return to the same state to get the custom input
+        return YEAR
     
+    # Save the year range
+    context.user_data['car_preferences']['year_range'] = text
+    
+    # Move to price range
+    await update.message.reply_text(
+        "What price range are you interested in?",
+        reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
+    )
+    return PRICE
     # Save the year range
     context.user_data['car_preferences']['year_range'] = text
     
