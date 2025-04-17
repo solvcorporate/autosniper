@@ -3,7 +3,9 @@ import logging
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+
 from sheets import get_sheets_manager
+from conversations import get_car_preferences_conversation
 
 # Load environment variables
 load_dotenv()
@@ -35,7 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Try these commands:\n"
         f"• /help - See all available commands\n"
         f"• /demo - View sample car alerts\n\n"
-        f"Ready to start finding amazing car deals? 🔍"
+        f"Ready to start finding amazing car deals? Use /mycars to set up your preferences!"
     )
     
     await update.message.reply_text(welcome_message, parse_mode="MARKDOWN")
@@ -147,7 +149,7 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     cta_message = (
         "*Ready to find your next car at an unbeatable price?*\n\n"
         "AutoSniper continuously monitors multiple platforms to find deals like these matching your criteria.\n\n"
-        "The car search filters feature will be available soon! We'll notify you when you can start setting up your preferences."
+        "Use the /mycars command to set up your preferences now!"
     )
     
     await update.message.reply_text(cta_message, parse_mode="MARKDOWN")
@@ -184,15 +186,6 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     await update.message.reply_text(faq_text, parse_mode="MARKDOWN")
 
-async def mycars_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /mycars command to view and manage car preferences."""
-    await update.message.reply_text(
-        "*Your Car Preferences*\n\n"
-        "You currently have no saved car preferences.\n\n"
-        "To set up your preferences, simply tell AutoSniper what you're looking for by chatting with the bot.",
-        parse_mode="MARKDOWN"
-    )
-    
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /subscribe command to manage subscription tiers."""
     subscribe_text = (
@@ -228,14 +221,31 @@ def main():
     # Create the Application and pass it your bot's token
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Store sheets_manager in bot_data for access in conversation handlers
+    if sheets_manager:
+        application.bot_data['sheets_manager'] = sheets_manager
+    
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("demo", demo_command))
     application.add_handler(CommandHandler("faq", faq_command))
-    application.add_handler(CommandHandler("mycars", mycars_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
+    
+    # Register conversation handler for car preferences
+    if sheets_manager:
+        car_conversation = get_car_preferences_conversation(sheets_manager)
+        application.add_handler(car_conversation)
+    else:
+        logger.error("Google Sheets integration not available. Car preferences conversation disabled.")
+        
+        # Add a basic handler for /mycars when sheets is not available
+        async def mycars_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text(
+                "Sorry, the car preferences feature is not available right now. Please try again later."
+            )
+        application.add_handler(CommandHandler("mycars", mycars_fallback))
 
     # Start the Bot - using a different approach that works better in cloud environments
     application.run_polling()
