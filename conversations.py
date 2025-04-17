@@ -207,26 +207,68 @@ async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Parse the year range
     if text == 'Custom':
         await update.message.reply_text(
-            "Please enter your custom year range in format 'MIN-MAX' (e.g., '2015-2020'):"
+            "Please enter your custom year range in format 'MIN-MAX' (e.g., '2015-2020').\n"
+            "Or simply enter a single year (e.g., '2017') if you're looking for a specific year."
         )
         # Return to the same state to get the custom input
         return YEAR
     
-    # Save the year range
+    # Check if this is a custom year input (after selecting Custom)
+    if 'car_preferences' in context.user_data and 'year_range' not in context.user_data['car_preferences']:
+        try:
+            # Try to parse as a range (e.g., "2015-2020")
+            if '-' in text:
+                year_parts = text.split('-')
+                min_year = int(year_parts[0].strip())
+                max_year = int(year_parts[1].strip())
+                year_text = f"{min_year}-{max_year}"
+            else:
+                # Try to parse as a single year (e.g., "2017")
+                year = int(text.strip())
+                min_year = year
+                max_year = year
+                year_text = f"{year}"
+                
+            # Save to context
+            context.user_data['car_preferences']['year_range'] = year_text
+            context.user_data['car_preferences']['min_year'] = min_year
+            context.user_data['car_preferences']['max_year'] = max_year
+            
+            # Move to price range
+            await update.message.reply_text(
+                f"Great! Looking for cars from {year_text}.\n\n"
+                f"What price range are you interested in?",
+                reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
+            )
+            return PRICE
+        except ValueError:
+            # Not a valid year format
+            await update.message.reply_text(
+                "That doesn't seem to be a valid year or year range. "
+                "Please enter a year (e.g., '2017') or year range (e.g., '2015-2020'):"
+            )
+            return YEAR
+    
+    # Save the year range for preset options
     context.user_data['car_preferences']['year_range'] = text
+    
+    # Also parse and save min_year and max_year for preset options
+    if 'Present' in text:
+        year_parts = text.split('-')
+        min_year = int(year_parts[0])
+        max_year = 2025  # Current year as "Present"
+    else:
+        year_parts = text.split('-')
+        min_year = int(year_parts[0])
+        max_year = int(year_parts[1])
+    
+    context.user_data['car_preferences']['min_year'] = min_year
+    context.user_data['car_preferences']['max_year'] = max_year
     
     # Move to price range
     await update.message.reply_text(
-        "What price range are you interested in?",
-        reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
-    )
-    return PRICE
-    # Save the year range
-    context.user_data['car_preferences']['year_range'] = text
-    
-    # Move to price range
-    await update.message.reply_text(
-        "What price range are you interested in?",
+        f"Great! Looking for cars from {text}.\n\n"
+        f"What price range are you interested in?",
         reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
     )
     return PRICE
@@ -304,23 +346,36 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     
     if text == 'yes':
-        # Save to Google Sheets (simplified for now)
+        # Save to Google Sheets
         sheets_manager = context.bot_data['sheets_manager']
         prefs = context.user_data['car_preferences']
         
-        # Parse year range 
-        year_range = prefs.get('year_range', '')
-        min_year = 0
-        max_year = 9999
+        # Get min and max years, if they were already parsed
+        min_year = prefs.get('min_year', 0)
+        max_year = prefs.get('max_year', 9999)
         
-        if 'Present' in year_range:
-            year_parts = year_range.split('-')
-            min_year = int(year_parts[0])
-            max_year = 2025  # Current year as "Present"
-        elif '-' in year_range:
-            year_parts = year_range.split('-')
-            min_year = int(year_parts[0])
-            max_year = int(year_parts[1])
+        # If min_year and max_year weren't already set, parse from year_range
+        if not min_year or not max_year:
+            year_range = prefs.get('year_range', '')
+            
+            if 'Present' in year_range:
+                year_parts = year_range.split('-')
+                min_year = int(year_parts[0])
+                max_year = 2025  # Current year as "Present"
+            elif '-' in year_range:
+                year_parts = year_range.split('-')
+                min_year = int(year_parts[0])
+                max_year = int(year_parts[1])
+            else:
+                # Try to parse as a single year
+                try:
+                    single_year = int(year_range.strip())
+                    min_year = single_year
+                    max_year = single_year
+                except (ValueError, AttributeError):
+                    # If parsing fails, use defaults
+                    min_year = 0
+                    max_year = 9999
         
         # Parse price range
         price_range = prefs.get('price_range', '')
