@@ -69,6 +69,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/subscribe - Choose between Basic (€10) and Premium (€25) tiers\n"
         "/dealsofweek - View this week's top deals (Premium only)\n\n"
         
+        "You can cancel any ongoing setup process by typing 'cancel' at any point.\n\n"
+        
         "🚗 *Coming Soon:*\n"
         "• WhatsApp integration\n"
         "• Referral program\n\n"
