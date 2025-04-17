@@ -17,7 +17,8 @@ class SheetsManager:
         self.credentials_path = credentials_path
         self.spreadsheet_id = spreadsheet_id
         self.client = None
-        self.sheet = None
+        self.users_sheet = None  # Sheet for user information
+        self.cars_sheet = None   # Sheet for car preferences
         self.connect()
     
     def connect(self):
@@ -35,7 +36,36 @@ class SheetsManager:
             self.client = gspread.authorize(credentials)
             
             # Open the spreadsheet
-            self.sheet = self.client.open_by_key(self.spreadsheet_id).sheet1
+            spreadsheet = self.client.open_by_key(self.spreadsheet_id)
+            
+            # Get or create the Users sheet
+            try:
+                self.users_sheet = spreadsheet.worksheet("Users")
+                print("Connected to Users sheet")
+            except gspread.exceptions.WorksheetNotFound:
+                # Create Users sheet if it doesn't exist
+                self.users_sheet = spreadsheet.add_worksheet(title="Users", rows=1000, cols=20)
+                # Add headers
+                self.users_sheet.append_row([
+                    "user_id", "first_name", "last_name", "username", 
+                    "join_date", "subscription_tier"
+                ])
+                print("Created new Users sheet")
+            
+            # Get or create the Cars sheet
+            try:
+                self.cars_sheet = spreadsheet.worksheet("Cars")
+                print("Connected to Cars sheet")
+            except gspread.exceptions.WorksheetNotFound:
+                # Create Cars sheet if it doesn't exist
+                self.cars_sheet = spreadsheet.add_worksheet(title="Cars", rows=1000, cols=20)
+                # Add headers
+                self.cars_sheet.append_row([
+                    "user_id", "make", "model", "min_year", "max_year",
+                    "min_price", "max_price", "location", "created_at", 
+                    "updated_at", "status"
+                ])
+                print("Created new Cars sheet")
             
             print("Connected to Google Sheets successfully!")
             return True
@@ -66,7 +96,7 @@ class SheetsManager:
             subscription_tier = "None"  # Default value for new users
             
             # Append the new user to the spreadsheet
-            self.sheet.append_row([
+            self.users_sheet.append_row([
                 user_id,
                 first_name,
                 last_name if last_name else "",
@@ -92,7 +122,7 @@ class SheetsManager:
         """
         try:
             # Get all user_ids from column A
-            user_ids = self.sheet.col_values(1)
+            user_ids = self.users_sheet.col_values(1)
             
             # Skip the header row and convert to strings for comparison
             return str(user_id) in [str(id) for id in user_ids[1:]]
@@ -112,7 +142,7 @@ class SheetsManager:
         """
         try:
             # Get all user_ids from column A
-            user_ids = self.sheet.col_values(1)
+            user_ids = self.users_sheet.col_values(1)
             
             # Find the row index for this user
             try:
@@ -122,13 +152,91 @@ class SheetsManager:
                 return False
             
             # Update the subscription_tier cell (column F)
-            self.sheet.update_cell(row_idx, 6, subscription_tier)
+            self.users_sheet.update_cell(row_idx, 6, subscription_tier)
             
             print(f"Updated subscription for user {user_id} to {subscription_tier}.")
             return True
         except Exception as e:
             print(f"Error updating subscription: {e}")
             return False
+    
+    def add_car_preferences(self, user_id, make, model, min_year, max_year, min_price, max_price, location):
+        """Add or update car preferences for a user.
+        
+        Args:
+            user_id: Telegram user ID
+            make: Car make (e.g., BMW, Toyota)
+            model: Car model (e.g., 3 Series, Corolla)
+            min_year: Minimum year
+            max_year: Maximum year
+            min_price: Minimum price
+            max_price: Maximum price
+            location: User's location preference
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Check if user already has car preferences
+            existing_rows = self.get_car_preferences(user_id)
+            
+            # Current timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            if existing_rows:
+                # User already has preferences, update the status of all to 'inactive'
+                car_ids = self.cars_sheet.col_values(1)
+                for row in existing_rows:
+                    try:
+                        row_idx = [str(id) for id in car_ids].index(str(user_id)) + 1
+                        self.cars_sheet.update_cell(row_idx, 11, 'inactive')  # Set status to inactive
+                    except ValueError:
+                        continue
+            
+            # Add new preferences with 'active' status
+            self.cars_sheet.append_row([
+                user_id,
+                make,
+                model,
+                min_year,
+                max_year,
+                min_price,
+                max_price,
+                location,
+                timestamp,  # created_at
+                timestamp,  # updated_at
+                'active'    # status
+            ])
+            
+            print(f"Added car preferences for user {user_id}.")
+            return True
+        except Exception as e:
+            print(f"Error adding car preferences: {e}")
+            return False
+    
+    def get_car_preferences(self, user_id):
+        """Get all car preferences for a user.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            list: List of dictionaries containing car preferences, or empty list if none found
+        """
+        try:
+            # Get all data from Cars sheet
+            all_data = self.cars_sheet.get_all_records()
+            
+            # Filter for rows with matching user_id and active status
+            user_preferences = [
+                row for row in all_data 
+                if str(row['user_id']) == str(user_id) and row.get('status', '') == 'active'
+            ]
+            
+            return user_preferences
+        except Exception as e:
+            print(f"Error getting car preferences: {e}")
+            return []
 
 # Helper function to create a sheets manager from environment variables
 def get_sheets_manager():
