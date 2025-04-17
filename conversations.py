@@ -443,6 +443,9 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "Car preference setup cancelled. You can restart anytime with /mycars.",
             reply_markup=ReplyKeyboardRemove()
         )
+        # Clear user data
+        if 'car_preferences' in context.user_data:
+            del context.user_data['car_preferences']
         return ConversationHandler.END
     
     if text == 'yes':
@@ -476,7 +479,8 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
         
         # Clear user data
-        context.user_data.clear()
+        if 'car_preferences' in context.user_data:
+            del context.user_data['car_preferences']
         return ConversationHandler.END
     
     # If response wasn't yes or no
@@ -493,8 +497,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=ReplyKeyboardRemove()
     )
     
-    # Clear user data
-    context.user_data.clear()
+    # Clear only car preferences data, not all user data
+    if 'car_preferences' in context.user_data:
+        del context.user_data['car_preferences']
     return ConversationHandler.END
 
 # Create the conversation handler
@@ -516,7 +521,11 @@ def get_car_preferences_conversation(sheets_manager):
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            MessageHandler(filters.Regex('^[Cc]ancel$'), cancel)
+            MessageHandler(filters.Regex('^[Cc]ancel
+        ],
+        name="car_preferences",
+        persistent=False
+    )), cancel)
         ],
         name="car_preferences",
         persistent=False
