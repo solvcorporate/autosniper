@@ -3,6 +3,7 @@ import logging
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from sheets import get_sheets_manager
 
 # Load environment variables
 load_dotenv()
@@ -13,6 +14,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Initialize Google Sheets manager
+sheets_manager = get_sheets_manager()
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -36,8 +40,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     await update.message.reply_text(welcome_message, parse_mode="MARKDOWN")
     
-    # Log new user in console (we'll add Google Sheets integration in Task 4)
-    logger.info(f"New user started the bot: {user.first_name} {user.last_name} (ID: {user.id})")
+    # Store user information in Google Sheets
+    if sheets_manager:
+        user_added = sheets_manager.add_user(
+            user_id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            username=user.username
+        )
+        if user_added:
+            logger.info(f"User saved to Google Sheets: {user.first_name} {user.last_name} (ID: {user.id})")
+        else:
+            logger.error(f"Failed to save user to Google Sheets: {user.id}")
+    else:
+        logger.warning("Google Sheets integration not available. User not saved.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
