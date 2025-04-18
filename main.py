@@ -225,7 +225,7 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     
     # Check if user is admin (for now, just a simple check - you might want to improve this)
-    is_admin = user.id == 123456789  # Replace with your actual Telegram ID
+    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
     
     if not is_admin:
         await update.message.reply_text(
