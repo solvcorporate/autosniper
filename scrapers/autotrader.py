@@ -200,4 +200,4 @@ class AutoTraderScraper(BaseScraper):
             price = self._extract_price(price_text)
             
             # Get year
-            year_element = element.select_one('.product-card-details__
+            year_element = element.select_one('.product-card-details__')
