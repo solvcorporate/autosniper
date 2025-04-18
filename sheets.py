@@ -242,10 +242,10 @@ class SheetsManager:
         """
         try:
             # Get all data from Cars sheet
-            all_data = self.cars_sheet.get_all_records()
+            all_records = self.cars_sheet.get_all_records()
             
             # Find the specific preference
-            for idx, row in enumerate(all_data):
+            for idx, row in enumerate(all_records):
                 if (str(row['user_id']) == str(user_id) and 
                     row['make'] == make and 
                     row['model'] == model and
@@ -253,14 +253,36 @@ class SheetsManager:
                     
                     # Add 2 to account for header row and 0-indexing to 1-indexing
                     row_idx = idx + 2
+                    # Update timestamp
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # Updated_at is in column L (12)
+                    self.cars_sheet.update_cell(row_idx, 12, timestamp)
                     # Status is in column M (13)
                     self.cars_sheet.update_cell(row_idx, 13, 'inactive')
+                    print(f"Set preference inactive for user {user_id}: {make} {model}")
                     return True
             
+            print(f"No matching active preference found for user {user_id}: {make} {model}")
             return False
         except Exception as e:
             print(f"Error setting preference inactive: {e}")
             return False
+    
+    def get_active_preferences_count(self, user_id):
+        """Get the count of active preferences for a user
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            int: Number of active preferences
+        """
+        try:
+            preferences = self.get_car_preferences(user_id)
+            return len(preferences)
+        except Exception as e:
+            print(f"Error counting active preferences: {e}")
+            return 0
 
 # Helper function to create a sheets manager from environment variables
 def get_sheets_manager():
