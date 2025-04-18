@@ -219,12 +219,13 @@ async def dealsofweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "Use /subscribe to learn more about our subscription options.",
         parse_mode="MARKDOWN"
     )
-    async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Manually trigger the scrapers to run (admin only)."""
-        user = update.effective_user
+
+async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the scrapers to run (admin only)."""
+    user = update.effective_user
     
-        # Check if user is admin (for now, just a simple check - you might want to improve this)
-        is_admin = user.id == 123456789  # Replace with your actual Telegram ID
+    # Check if user is admin (for now, just a simple check - you might want to improve this)
+    is_admin = user.id == 123456789  # Replace with your actual Telegram ID
     
     if not is_admin:
         await update.message.reply_text(
@@ -289,6 +290,7 @@ def main():
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
     # Register admin command to run scrapers manually
     application.add_handler(CommandHandler("runscraper", run_scrapers_command))
+    
     # Register conversation handler for car preferences
     if sheets_manager:
         car_conversation = get_car_preferences_conversation(sheets_manager)
@@ -302,7 +304,8 @@ def main():
                 "Sorry, the car preferences feature is not available right now. Please try again later."
             )
         application.add_handler(CommandHandler("mycars", mycars_fallback))
-# Start the scheduler
+
+    # Start the scheduler
     scheduler = get_scheduler()
     scheduler.start()
     logger.info("Scheduler started")
