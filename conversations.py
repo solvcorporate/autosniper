@@ -54,25 +54,6 @@ TRANSMISSION_OPTIONS = [
     ['Automatic', 'Manual', 'Any']
 ]
 
-# Advanced options
-ADVANCED_OPTIONS = [
-    ['Set Fuel Type', 'Set Transmission'],
-    ['Skip Advanced Options']
-]
-
-# Helper for loading animation
-async def loading_animation(update: Update, message_text: str, final_text: str):
-    """Display a simple loading animation with dots."""
-    message = await update.message.reply_text(f"{message_text}...")
-    
-    # Just show dots appearing one by one
-    await message.edit_text(f"{message_text}..")
-    await message.edit_text(f"{message_text}...")
-    await message.edit_text(f"{message_text}....")
-    
-    # Final message
-    await message.edit_text(final_text)
-
 async def start_car_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the car preferences conversation."""
     user = update.effective_user
@@ -85,18 +66,13 @@ async def start_car_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return ConversationHandler.END
     
-    # Initialize user data in context
-    context.user_data['car_preferences'] = {}
-    context.user_data['setup_step'] = 1
-    context.user_data['total_steps'] = 5
-    
     # Get existing car preferences for this user
     sheets_manager = context.bot_data['sheets_manager']
     existing_preferences = sheets_manager.get_car_preferences(user.id)
     
-    if existing_preferences:
-        # User already has preferences
-        active_count = len(existing_preferences)
+    # Always show the action menu first
+    active_count = len(existing_preferences)
+    if active_count > 0:
         reply_keyboard = [['Set New Car', 'View Current', 'Cancel']]
         await update.message.reply_text(
             f"You currently have {active_count} active car preference{'s' if active_count > 1 else ''}. What would you like to do?",
@@ -104,6 +80,11 @@ async def start_car_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return CHOOSE_ACTION
     else:
+        # Initialize user data in context for new users
+        context.user_data['car_preferences'] = {}
+        context.user_data['setup_step'] = 1
+        context.user_data['total_steps'] = 5
+        
         # New user, start with car make
         await update.message.reply_text(
             "*AutoSniper Car Preferences Setup*\n\n"
@@ -119,6 +100,8 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     choice = update.message.text
     
     if choice == 'Set New Car':
+        # Initialize user data in context
+        context.user_data['car_preferences'] = {}
         context.user_data['setup_step'] = 1
         context.user_data['total_steps'] = 5
         
@@ -167,6 +150,8 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup=ReplyKeyboardRemove()
             )
         else:
+            # Initialize user data in context since user has no preferences
+            context.user_data['car_preferences'] = {}
             context.user_data['setup_step'] = 1
             context.user_data['total_steps'] = 5
             
@@ -507,6 +492,10 @@ async def advanced_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Skip advanced options, go to confirmation
         prefs = context.user_data['car_preferences']
         
+        # Default values for advanced options
+        context.user_data['car_preferences']['fuel_type'] = "Any"
+        context.user_data['car_preferences']['transmission'] = "Any"
+        
         # Build a nicely formatted summary card
         summary = (
             "*Preference Summary*\n"
@@ -516,6 +505,8 @@ async def advanced_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"*Year Range:* {prefs.get('year_range', 'Not specified')}\n"
             f"*Price Range:* {prefs.get('price_range', 'Not specified')}\n"
             f"*Location:* {prefs.get('location', 'Not specified')}\n"
+            f"*Fuel Type:* Any\n"
+            f"*Transmission:* Any\n"
             "───────────────────────\n\nIs this correct?"
         )
         
@@ -606,7 +597,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     
     if text == 'yes':
-        # Simple saving message without animation
+        # Simple saving message
         saving_message = await update.message.reply_text("Saving your preferences...")
         
         # Save to Google Sheets
@@ -636,39 +627,12 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             transmission=transmission
         )
         
-        # Update the saving message
-        await saving_message.edit_text("Preferences saved successfully!")
-        
         if success:
-            # Show sample alert based on preferences
-            make = prefs.get('make', 'car')
-            model = prefs.get('model', '')
-            car_name = f"{make} {model}".strip()
-            
-            # Generate a sample alert for the user
-            sample_alert = (
-                "*Here's a sample of alerts you'll receive:*\n\n"
-                "─────────────────────\n"
-                "*A+ DEAL ALERT*\n\n"
-                f"*{car_name}*\n"
-                f"Price: £14,500 (Market avg: £19,200)\n"
-                f"72,000 miles | {fuel_type} | {transmission}\n"
-                f"Location: {prefs.get('location', 'Manchester')}\n"
-                f"Full service history | Valid MOT\n"
-                "*Score: A+* (24% below market)\n\n"
-                "Suggested message: \"Hi, is your car still available? I can view it today if possible.\"\n\n"
-                "[View Listing](https://example.com/listing)\n"
-                "─────────────────────"
-            )
-            
             await update.message.reply_text(
-                "Your car preferences have been saved. AutoSniper will now start looking "
+                "Your car preferences have been saved successfully! AutoSniper will now start looking "
                 "for deals matching your criteria.\n\n"
-                f"{sample_alert}\n\n"
                 "You'll receive alerts when we find cars that match your preferences. "
                 "You can update your preferences anytime by using the /mycars command.",
-                parse_mode="MARKDOWN",
-                disable_web_page_preview=True,
                 reply_markup=ReplyKeyboardRemove()
             )
         else:
