@@ -284,6 +284,151 @@ class SheetsManager:
             print(f"Error counting active preferences: {e}")
             return 0
 
+def setup_listings_sheet(self):
+    """Set up the Listings sheet if it doesn't exist.
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        spreadsheet = self.client.open_by_key(self.spreadsheet_id)
+        
+        # Get or create the Listings sheet
+        try:
+            self.listings_sheet = spreadsheet.worksheet("Listings")
+            print("Connected to Listings sheet")
+            return True
+        except gspread.exceptions.WorksheetNotFound:
+            # Create Listings sheet if it doesn't exist
+            self.listings_sheet = spreadsheet.add_worksheet(title="Listings", rows=1000, cols=20)
+            # Add headers
+            self.listings_sheet.append_row([
+                "listing_id", "source", "make", "model", "year", "price", 
+                "mileage", "location", "fuel_type", "transmission",
+                "url", "title", "scraped_at", "matched_to", "notified_at", "score"
+            ])
+            print("Created new Listings sheet")
+            return True
+    except Exception as e:
+        print(f"Error setting up Listings sheet: {e}")
+        return False
+
+def add_listing(self, listing):
+    """Add a new car listing to the spreadsheet.
+    
+    Args:
+        listing: Dictionary containing listing details
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Make sure Listings sheet is available
+        if not hasattr(self, 'listings_sheet') or not self.listings_sheet:
+            if not self.setup_listings_sheet():
+                return False
+        
+        # Check if this listing already exists
+        listing_id = self._generate_listing_id(listing)
+        if self.listing_exists(listing_id):
+            print(f"Listing {listing_id} already exists in the spreadsheet.")
+            return True
+        
+        # Prepare the listing data
+        row_data = [
+            listing_id,
+            listing.get('source', ''),
+            listing.get('make', ''),
+            listing.get('model', ''),
+            listing.get('year', ''),
+            listing.get('price', ''),
+            listing.get('mileage', ''),
+            listing.get('location', ''),
+            listing.get('fuel_type', ''),
+            listing.get('transmission', ''),
+            listing.get('url', ''),
+            listing.get('title', ''),
+            listing.get('scraped_at', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            '',  # matched_to (user_id) - will be filled later
+            '',  # notified_at - will be filled later
+            ''   # score - will be calculated later
+        ]
+        
+        # Append the new listing to the spreadsheet
+        self.listings_sheet.append_row(row_data)
+        
+        print(f"Added listing {listing_id} to the spreadsheet.")
+        return True
+    except Exception as e:
+        print(f"Error adding listing to Google Sheets: {e}")
+        return False
+
+def listing_exists(self, listing_id):
+    """Check if a listing already exists in the spreadsheet.
+    
+    Args:
+        listing_id: Unique ID for the listing
+        
+    Returns:
+        bool: True if listing exists, False otherwise
+    """
+    try:
+        # Make sure Listings sheet is available
+        if not hasattr(self, 'listings_sheet') or not self.listings_sheet:
+            if not self.setup_listings_sheet():
+                return False
+        
+        # Get all listing_ids from column A
+        listing_ids = self.listings_sheet.col_values(1)
+        
+        # Skip the header row
+        return listing_id in listing_ids[1:]
+    except Exception as e:
+        print(f"Error checking if listing exists: {e}")
+        return False
+
+def _generate_listing_id(self, listing):
+    """Generate a unique ID for a listing.
+    
+    Args:
+        listing: Dictionary containing listing details
+        
+    Returns:
+        str: Unique listing ID
+    """
+    # Use source, make, model, year, price, and mileage to create a unique ID
+    source = listing.get('source', '').lower()
+    make = listing.get('make', '').lower()
+    model = listing.get('model', '').lower()
+    year = str(listing.get('year', ''))
+    price = str(listing.get('price', ''))
+    mileage = str(listing.get('mileage', ''))
+    url = listing.get('url', '')
+    
+    # Extract a unique identifier from the URL if possible
+    url_id = ''
+    if url:
+        # Try to extract ID from different URL patterns
+        if 'autotrader.co.uk' in url or 'autotrader.ie' in url:
+            # AutoTrader URLs often have a listing ID in the path
+            import re
+            match = re.search(r'/([0-9]+)$', url)
+            if match:
+                url_id = match.group(1)
+    
+    # If we found a URL ID, use it
+    if url_id:
+        listing_id = f"{source}_{url_id}"
+    else:
+        # Otherwise create a hash from the listing details
+        import hashlib
+        # Combine the key fields
+        combined = f"{source}_{make}_{model}_{year}_{price}_{mileage}"
+        # Create a hash
+        listing_id = hashlib.md5(combined.encode()).hexdigest()[:12]
+    
+    return listing_id
+
 # Helper function to create a sheets manager from environment variables
 def get_sheets_manager():
     """Create a SheetsManager instance using environment variables.
