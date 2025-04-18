@@ -1,7 +1,7 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, ConversationHandler, CommandHandler,
-    MessageHandler, filters
+    MessageHandler, filters, CallbackQueryHandler
 )
 import logging
 
@@ -12,7 +12,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Define states for the conversation
-CHOOSE_ACTION, MAKE, MODEL, YEAR, PRICE, LOCATION, ADVANCED, FUEL, TRANSMISSION, CONFIRM = range(10)
+CHOOSE_ACTION, SELECT_PREFERENCE, CONFIRM_DELETE, MAKE, MODEL, YEAR, PRICE, LOCATION, ADVANCED, FUEL, TRANSMISSION, CONFIRM = range(12)
 
 # Common car makes for keyboard suggestions
 CAR_MAKES = [
@@ -73,7 +73,7 @@ async def start_car_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Always show the action menu first
     active_count = len(existing_preferences)
     if active_count > 0:
-        reply_keyboard = [['Set New Car', 'View Current', 'Cancel']]
+        reply_keyboard = [['Set New Car', 'View/Edit Current', 'Cancel']]
         await update.message.reply_text(
             f"You currently have {active_count} active car preference{'s' if active_count > 1 else ''}. What would you like to do?",
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
@@ -104,6 +104,7 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         context.user_data['car_preferences'] = {}
         context.user_data['setup_step'] = 1
         context.user_data['total_steps'] = 5
+        context.user_data['editing'] = False
         
         await update.message.reply_text(
             "*AutoSniper Car Preferences Setup*\n\n"
@@ -114,22 +115,35 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return MAKE
     
-    elif choice == 'View Current':
-        # Get user's current preferences and display them
+    elif choice == 'View/Edit Current':
+        # Get user's current preferences and display them with edit/delete options
         sheets_manager = context.bot_data['sheets_manager']
         preferences = sheets_manager.get_car_preferences(update.effective_user.id)
         
         if preferences:
             await update.message.reply_text(
                 "*Your Current Car Preferences*\n"
-                "───────────────────────",
-                parse_mode="MARKDOWN"
+                "Select a preference to edit or delete it:",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardRemove()
             )
+            
+            # Store preferences in context for later reference
+            context.user_data['all_preferences'] = preferences
             
             for i, car in enumerate(preferences, 1):
                 # Create a nicely formatted card for each preference
                 fuel_type = car.get('fuel_type', 'Any')
                 transmission = car.get('transmission', 'Any')
+                
+                # Create inline keyboard with Edit and Delete buttons
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Edit", callback_data=f"edit_{i-1}"),
+                        InlineKeyboardButton("Delete", callback_data=f"delete_{i-1}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
                     f"*Preference #{i}*\n"
@@ -142,13 +156,11 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                     f"*Fuel Type:* {fuel_type}\n"
                     f"*Transmission:* {transmission}\n"
                     "───────────────────────",
-                    parse_mode="MARKDOWN"
+                    parse_mode="MARKDOWN",
+                    reply_markup=reply_markup
                 )
             
-            await update.message.reply_text(
-                "Use /mycars to add or update your preferences.",
-                reply_markup=ReplyKeyboardRemove()
-            )
+            return SELECT_PREFERENCE
         else:
             # Initialize user data in context since user has no preferences
             context.user_data['car_preferences'] = {}
@@ -164,8 +176,6 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup=ReplyKeyboardMarkup(CAR_MAKES, one_time_keyboard=True)
             )
             return MAKE
-        
-        return ConversationHandler.END
     
     elif choice == 'Cancel':
         await update.message.reply_text(
@@ -178,9 +188,147 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     else:
         await update.message.reply_text(
             "I didn't understand that choice. Please select one of the options below.",
-            reply_markup=ReplyKeyboardMarkup([['Set New Car', 'View Current', 'Cancel']], one_time_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup([['Set New Car', 'View/Edit Current', 'Cancel']], one_time_keyboard=True)
         )
         return CHOOSE_ACTION
+
+async def select_preference(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle selection of a preference to edit or delete."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data.startswith('edit_'):
+        # Extract the preference index
+        idx = int(data.split('_')[1])
+        preferences = context.user_data.get('all_preferences', [])
+        
+        if idx < len(preferences):
+            # Store the preference for editing
+            pref = preferences[idx]
+            context.user_data['car_preferences'] = pref.copy()
+            context.user_data['editing'] = True
+            context.user_data['edit_index'] = idx
+            context.user_data['setup_step'] = 1
+            context.user_data['total_steps'] = 5
+            
+            # Start editing with make
+            await query.message.reply_text(
+                "*Edit Car Preference*\n\n"
+                f"Step 1/{context.user_data['total_steps']}: Car Make\n\n"
+                f"Current make: {pref['make']}\n\n"
+                "Select a new make or use the current one:",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup(CAR_MAKES + [['Keep Current']], one_time_keyboard=True)
+            )
+            return MAKE
+        else:
+            await query.message.reply_text(
+                "Sorry, that preference was not found. Please try again.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
+    
+    elif data.startswith('delete_'):
+        # Extract the preference index
+        idx = int(data.split('_')[1])
+        preferences = context.user_data.get('all_preferences', [])
+        
+        if idx < len(preferences):
+            # Store the preference for deletion
+            pref = preferences[idx]
+            context.user_data['delete_preference'] = pref
+            context.user_data['delete_index'] = idx
+            
+            # Ask for confirmation
+            await query.message.reply_text(
+                f"Are you sure you want to delete this car preference?\n\n"
+                f"Make: {pref['make']}\n"
+                f"Model: {pref['model']}\n\n"
+                f"This action cannot be undone.",
+                reply_markup=ReplyKeyboardMarkup([['Yes, Delete It', 'No, Keep It']], one_time_keyboard=True)
+            )
+            return CONFIRM_DELETE
+        else:
+            await query.message.reply_text(
+                "Sorry, that preference was not found. Please try again.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
+    
+    else:
+        await query.message.reply_text(
+            "Sorry, I didn't understand that selection. Please try again using /mycars.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle confirmation of preference deletion."""
+    text = update.message.text
+    
+    if text == 'Yes, Delete It':
+        # Get the preference to delete
+        pref = context.user_data.get('delete_preference')
+        
+        if pref:
+            # Delete the preference
+            sheets_manager = context.bot_data['sheets_manager']
+            success = sheets_manager.set_preference_inactive(
+                user_id=update.effective_user.id,
+                make=pref['make'],
+                model=pref['model']
+            )
+            
+            if success:
+                await update.message.reply_text(
+                    "Car preference deleted successfully!",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+            else:
+                await update.message.reply_text(
+                    "There was an error deleting your preference. Please try again later.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+        else:
+            await update.message.reply_text(
+                "Sorry, I couldn't find the preference to delete. Please try again.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        
+        # Clear relevant user data
+        if 'delete_preference' in context.user_data:
+            del context.user_data['delete_preference']
+        if 'delete_index' in context.user_data:
+            del context.user_data['delete_index']
+        if 'all_preferences' in context.user_data:
+            del context.user_data['all_preferences']
+        
+        return ConversationHandler.END
+    
+    elif text == 'No, Keep It':
+        await update.message.reply_text(
+            "Deletion cancelled. Your car preference will be kept.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        
+        # Clear relevant user data
+        if 'delete_preference' in context.user_data:
+            del context.user_data['delete_preference']
+        if 'delete_index' in context.user_data:
+            del context.user_data['delete_index']
+        if 'all_preferences' in context.user_data:
+            del context.user_data['all_preferences']
+        
+        return ConversationHandler.END
+    
+    else:
+        await update.message.reply_text(
+            "I didn't understand that response. Please select one of the options below.",
+            reply_markup=ReplyKeyboardMarkup([['Yes, Delete It', 'No, Keep It']], one_time_keyboard=True)
+        )
+        return CONFIRM_DELETE
 
 async def car_make(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle car make selection."""
@@ -192,6 +340,26 @@ async def car_make(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
+    
+    # Check if user wants to keep current make when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to model with current make
+        make = context.user_data['car_preferences']['make']
+        
+        # Increment step counter
+        context.user_data['setup_step'] = 2
+        
+        # Now ask for model
+        current_model = context.user_data['car_preferences']['model']
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 2/{context.user_data['total_steps']}: Car Model\n\n"
+            f"Current model: {current_model}\n\n"
+            f"Enter a new model for {make} or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup([['Keep Current']], one_time_keyboard=True)
+        )
+        return MODEL
     
     # Save the car make
     context.user_data['car_preferences']['make'] = text
@@ -209,12 +377,23 @@ async def car_make(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['setup_step'] = 2
     
     # Now ask for model
-    await update.message.reply_text(
-        "*AutoSniper Car Preferences Setup*\n\n"
-        f"Step 2/{context.user_data['total_steps']}: Car Model\n\n"
-        f"You selected {text}. What model are you interested in?",
-        parse_mode="MARKDOWN"
-    )
+    if context.user_data.get('editing'):
+        current_model = context.user_data['car_preferences']['model']
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 2/{context.user_data['total_steps']}: Car Model\n\n"
+            f"Current model: {current_model}\n\n"
+            f"Enter a new model for {text} or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup([['Keep Current']], one_time_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 2/{context.user_data['total_steps']}: Car Model\n\n"
+            f"You selected {text}. What model are you interested in?",
+            parse_mode="MARKDOWN"
+        )
     return MODEL
 
 async def car_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -227,6 +406,28 @@ async def car_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
+    
+    # Check if user wants to keep current model when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to year with current model
+        
+        # Increment step counter
+        context.user_data['setup_step'] = 3
+        
+        # Now ask for year range
+        current_min = context.user_data['car_preferences']['min_year']
+        current_max = context.user_data['car_preferences']['max_year']
+        current_range = f"{current_min} to {current_max}"
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 3/{context.user_data['total_steps']}: Year Range\n\n"
+            f"Current year range: {current_range}\n\n"
+            "Select a new year range or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(YEAR_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+        return YEAR
     
     # If the user typed 'Other' for make, now we capture the actual make
     if context.user_data['car_preferences'].get('make') == 'Other':
@@ -248,13 +449,27 @@ async def car_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['setup_step'] = 3
     
     # Now ask for year range
-    await update.message.reply_text(
-        "*AutoSniper Car Preferences Setup*\n\n"
-        f"Step 3/{context.user_data['total_steps']}: Year Range\n\n"
-        "What year range are you interested in?",
-        parse_mode="MARKDOWN",
-        reply_markup=ReplyKeyboardMarkup(YEAR_OPTIONS, one_time_keyboard=True)
-    )
+    if context.user_data.get('editing'):
+        current_min = context.user_data['car_preferences']['min_year']
+        current_max = context.user_data['car_preferences']['max_year']
+        current_range = f"{current_min} to {current_max}"
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 3/{context.user_data['total_steps']}: Year Range\n\n"
+            f"Current year range: {current_range}\n\n"
+            "Select a new year range or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(YEAR_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 3/{context.user_data['total_steps']}: Year Range\n\n"
+            "What year range are you interested in?",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(YEAR_OPTIONS, one_time_keyboard=True)
+        )
     return YEAR
 
 async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -267,6 +482,28 @@ async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
+    
+    # Check if user wants to keep current year range when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to price with current year range
+        
+        # Increment step counter
+        context.user_data['setup_step'] = 4
+        
+        # Now ask for price range
+        current_min = context.user_data['car_preferences']['min_price']
+        current_max = context.user_data['car_preferences']['max_price']
+        current_range = f"{current_min} to {current_max}"
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
+            f"Current price range: {current_range}\n\n"
+            "Select a new price range or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+        return PRICE
     
     # Parse the year range
     if text == 'Custom':
@@ -305,13 +542,27 @@ async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             context.user_data['setup_step'] = 4
             
             # Move to price range
-            await update.message.reply_text(
-                "*AutoSniper Car Preferences Setup*\n\n"
-                f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
-                f"Looking for cars from {year_text}. What price range are you interested in?",
-                parse_mode="MARKDOWN",
-                reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
-            )
+            if context.user_data.get('editing'):
+                current_min = context.user_data['car_preferences']['min_price']
+                current_max = context.user_data['car_preferences']['max_price']
+                current_range = f"{current_min} to {current_max}"
+                
+                await update.message.reply_text(
+                    "*AutoSniper Car Preferences Setup*\n\n"
+                    f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
+                    f"Current price range: {current_range}\n\n"
+                    "Select a new price range or keep the current one:",
+                    parse_mode="MARKDOWN",
+                    reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+                )
+            else:
+                await update.message.reply_text(
+                    "*AutoSniper Car Preferences Setup*\n\n"
+                    f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
+                    f"Looking for cars from {year_text}. What price range are you interested in?",
+                    parse_mode="MARKDOWN",
+                    reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
+                )
             return PRICE
         except ValueError:
             # Not a valid year format
@@ -344,13 +595,27 @@ async def year_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['setup_step'] = 4
     
     # Move to price range
-    await update.message.reply_text(
-        "*AutoSniper Car Preferences Setup*\n\n"
-        f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
-        f"Looking for cars from {text}. What price range are you interested in?",
-        parse_mode="MARKDOWN",
-        reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
-    )
+    if context.user_data.get('editing'):
+        current_min = context.user_data['car_preferences']['min_price']
+        current_max = context.user_data['car_preferences']['max_price']
+        current_range = f"{current_min} to {current_max}"
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
+            f"Current price range: {current_range}\n\n"
+            "Select a new price range or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 4/{context.user_data['total_steps']}: Price Range\n\n"
+            f"Looking for cars from {text}. What price range are you interested in?",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(PRICE_OPTIONS, one_time_keyboard=True)
+        )
     return PRICE
 
 async def price_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -363,6 +628,26 @@ async def price_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
+    
+    # Check if user wants to keep current price range when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to location with current price range
+        
+        # Increment step counter
+        context.user_data['setup_step'] = 5
+        
+        # Now ask for location
+        current_location = context.user_data['car_preferences']['location']
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 5/{context.user_data['total_steps']}: Location\n\n"
+            f"Current location: {current_location}\n\n"
+            "Select a new location or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(LOCATIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+        return LOCATION
     
     # Save the price range
     context.user_data['car_preferences']['price_range'] = text
@@ -388,13 +673,25 @@ async def price_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data['setup_step'] = 5
     
     # Move to location
-    await update.message.reply_text(
-        "*AutoSniper Car Preferences Setup*\n\n"
-        f"Step 5/{context.user_data['total_steps']}: Location\n\n"
-        "Which location are you interested in?",
-        parse_mode="MARKDOWN",
-        reply_markup=ReplyKeyboardMarkup(LOCATIONS, one_time_keyboard=True)
-    )
+    if context.user_data.get('editing'):
+        current_location = context.user_data['car_preferences']['location']
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 5/{context.user_data['total_steps']}: Location\n\n"
+            f"Current location: {current_location}\n\n"
+            "Select a new location or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(LOCATIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 5/{context.user_data['total_steps']}: Location\n\n"
+            "Which location are you interested in?",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(LOCATIONS, one_time_keyboard=True)
+        )
     return LOCATION
 
 async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -407,6 +704,56 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
+    
+    # Check if user wants to keep current location when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to advanced options with current location
+        
+        # Ask if user wants to set advanced options
+        if 'total_steps' in context.user_data and context.user_data['total_steps'] == 5:
+            # If we haven't already included advanced steps, ask if user wants them
+            current_fuel = context.user_data['car_preferences'].get('fuel_type', 'Any')
+            current_trans = context.user_data['car_preferences'].get('transmission', 'Any')
+            
+            await update.message.reply_text(
+                "*AutoSniper Car Preferences Setup*\n\n"
+                f"Current advanced settings:\n"
+                f"Fuel Type: {current_fuel}\n"
+                f"Transmission: {current_trans}\n\n"
+                "Would you like to edit advanced options?",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
+            )
+            return ADVANCED
+        else:
+            # If advanced steps are already included, go to confirmation
+            prefs = context.user_data['car_preferences']
+            
+            # Build a nicely formatted summary card
+            summary = (
+                "*Preference Summary*\n"
+                "───────────────────────\n"
+                f"*Make:* {prefs.get('make', 'Not specified')}\n"
+                f"*Model:* {prefs.get('model', 'Not specified')}\n"
+                f"*Year Range:* {prefs.get('year_range', 'Not specified')}\n"
+                f"*Price Range:* {prefs.get('price_range', 'Not specified')}\n"
+                f"*Location:* {prefs.get('location', 'Not specified')}\n"
+            )
+            
+            # Add advanced options if set
+            if 'fuel_type' in prefs:
+                summary += f"*Fuel Type:* {prefs.get('fuel_type')}\n"
+            if 'transmission' in prefs:
+                summary += f"*Transmission:* {prefs.get('transmission')}\n"
+            
+            summary += "───────────────────────\n\nIs this correct?"
+            
+            await update.message.reply_text(
+                summary,
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
+            )
+            return CONFIRM
     
     # Check if user selected an "Other" location option
     if text == 'Ireland: Other' or text == 'UK: Other':
@@ -426,12 +773,26 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Ask if user wants to set advanced options
     if 'total_steps' in context.user_data and context.user_data['total_steps'] == 5:
         # If we haven't already included advanced steps, ask if user wants them
-        await update.message.reply_text(
-            "*AutoSniper Car Preferences Setup*\n\n"
-            "Would you like to set advanced options like fuel type and transmission?",
-            parse_mode="MARKDOWN",
-            reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
-        )
+        if context.user_data.get('editing'):
+            current_fuel = context.user_data['car_preferences'].get('fuel_type', 'Any')
+            current_trans = context.user_data['car_preferences'].get('transmission', 'Any')
+            
+            await update.message.reply_text(
+                "*AutoSniper Car Preferences Setup*\n\n"
+                f"Current advanced settings:\n"
+                f"Fuel Type: {current_fuel}\n"
+                f"Transmission: {current_trans}\n\n"
+                "Would you like to edit advanced options?",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
+            )
+        else:
+            await update.message.reply_text(
+                "*AutoSniper Car Preferences Setup*\n\n"
+                "Would you like to set advanced options like fuel type and transmission?",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True)
+            )
         return ADVANCED
     else:
         # If advanced steps are already included, go to confirmation
@@ -480,21 +841,34 @@ async def advanced_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         context.user_data['setup_step'] = 6
         
         # Ask for fuel type
-        await update.message.reply_text(
-            "*AutoSniper Car Preferences Setup*\n\n"
-            f"Step 6/{context.user_data['total_steps']}: Fuel Type\n\n"
-            "What fuel type are you interested in?",
-            parse_mode="MARKDOWN",
-            reply_markup=ReplyKeyboardMarkup(FUEL_OPTIONS, one_time_keyboard=True)
-        )
+        if context.user_data.get('editing'):
+            current_fuel = context.user_data['car_preferences'].get('fuel_type', 'Any')
+            
+            await update.message.reply_text(
+                "*AutoSniper Car Preferences Setup*\n\n"
+                f"Step 6/{context.user_data['total_steps']}: Fuel Type\n\n"
+                f"Current fuel type: {current_fuel}\n\n"
+                "Select a new fuel type or keep the current one:",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup(FUEL_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+            )
+        else:
+            await update.message.reply_text(
+                "*AutoSniper Car Preferences Setup*\n\n"
+                f"Step 6/{context.user_data['total_steps']}: Fuel Type\n\n"
+                "What fuel type are you interested in?",
+                parse_mode="MARKDOWN",
+                reply_markup=ReplyKeyboardMarkup(FUEL_OPTIONS, one_time_keyboard=True)
+            )
         return FUEL
     else:
         # Skip advanced options, go to confirmation
         prefs = context.user_data['car_preferences']
         
-        # Default values for advanced options
-        context.user_data['car_preferences']['fuel_type'] = "Any"
-        context.user_data['car_preferences']['transmission'] = "Any"
+        # Default values for advanced options if not editing
+        if not context.user_data.get('editing'):
+            context.user_data['car_preferences']['fuel_type'] = "Any"
+            context.user_data['car_preferences']['transmission'] = "Any"
         
         # Build a nicely formatted summary card
         summary = (
@@ -505,8 +879,8 @@ async def advanced_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"*Year Range:* {prefs.get('year_range', 'Not specified')}\n"
             f"*Price Range:* {prefs.get('price_range', 'Not specified')}\n"
             f"*Location:* {prefs.get('location', 'Not specified')}\n"
-            f"*Fuel Type:* Any\n"
-            f"*Transmission:* Any\n"
+            f"*Fuel Type:* {prefs.get('fuel_type', 'Any')}\n"
+            f"*Transmission:* {prefs.get('transmission', 'Any')}\n"
             "───────────────────────\n\nIs this correct?"
         )
         
@@ -528,6 +902,26 @@ async def fuel_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
     
+    # Check if user wants to keep current fuel type when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to transmission with current fuel type
+        
+        # Increment step counter
+        context.user_data['setup_step'] = 7
+        
+        # Ask for transmission
+        current_trans = context.user_data['car_preferences'].get('transmission', 'Any')
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 7/{context.user_data['total_steps']}: Transmission\n\n"
+            f"Current transmission: {current_trans}\n\n"
+            "Select a new transmission type or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(TRANSMISSION_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+        return TRANSMISSION
+    
     # Save fuel type
     context.user_data['car_preferences']['fuel_type'] = text
     
@@ -535,13 +929,25 @@ async def fuel_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['setup_step'] = 7
     
     # Ask for transmission
-    await update.message.reply_text(
-        "*AutoSniper Car Preferences Setup*\n\n"
-        f"Step 7/{context.user_data['total_steps']}: Transmission\n\n"
-        "What transmission type are you interested in?",
-        parse_mode="MARKDOWN",
-        reply_markup=ReplyKeyboardMarkup(TRANSMISSION_OPTIONS, one_time_keyboard=True)
-    )
+    if context.user_data.get('editing'):
+        current_trans = context.user_data['car_preferences'].get('transmission', 'Any')
+        
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 7/{context.user_data['total_steps']}: Transmission\n\n"
+            f"Current transmission: {current_trans}\n\n"
+            "Select a new transmission type or keep the current one:",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(TRANSMISSION_OPTIONS + [['Keep Current']], one_time_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "*AutoSniper Car Preferences Setup*\n\n"
+            f"Step 7/{context.user_data['total_steps']}: Transmission\n\n"
+            "What transmission type are you interested in?",
+            parse_mode="MARKDOWN",
+            reply_markup=ReplyKeyboardMarkup(TRANSMISSION_OPTIONS, one_time_keyboard=True)
+        )
     return TRANSMISSION
 
 async def transmission_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -555,8 +961,13 @@ async def transmission_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return ConversationHandler.END
     
-    # Save transmission type
-    context.user_data['car_preferences']['transmission'] = text
+    # Check if user wants to keep current transmission when editing
+    if text == 'Keep Current' and context.user_data.get('editing'):
+        # Skip to confirmation with current transmission
+        pass
+    else:
+        # Save transmission type
+        context.user_data['car_preferences']['transmission'] = text
     
     # Show summary and ask for confirmation
     prefs = context.user_data['car_preferences']
@@ -614,6 +1025,17 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         fuel_type = prefs.get('fuel_type', 'Any')
         transmission = prefs.get('transmission', 'Any')
         
+        # Check if we're editing an existing preference
+        if context.user_data.get('editing'):
+            # If editing, first set the old preference to inactive
+            old_pref = context.user_data.get('all_preferences', [])[context.user_data.get('edit_index', 0)]
+            sheets_manager.set_preference_inactive(
+                user_id=update.effective_user.id,
+                make=old_pref['make'],
+                model=old_pref['model']
+            )
+        
+        # Add the new/updated preference
         success = sheets_manager.add_car_preferences(
             user_id=update.effective_user.id,
             make=prefs.get('make', ''),
@@ -628,13 +1050,21 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         
         if success:
-            await update.message.reply_text(
-                "Your car preferences have been saved successfully! AutoSniper will now start looking "
-                "for deals matching your criteria.\n\n"
-                "You'll receive alerts when we find cars that match your preferences. "
-                "You can update your preferences anytime by using the /mycars command.",
-                reply_markup=ReplyKeyboardRemove()
-            )
+            if context.user_data.get('editing'):
+                await update.message.reply_text(
+                    "Your car preferences have been updated successfully! AutoSniper will now look "
+                    "for deals matching your updated criteria.\n\n"
+                    "You can manage your preferences anytime by using the /mycars command.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+            else:
+                await update.message.reply_text(
+                    "Your car preferences have been saved successfully! AutoSniper will now start looking "
+                    "for deals matching your criteria.\n\n"
+                    "You'll receive alerts when we find cars that match your preferences. "
+                    "You can update your preferences anytime by using the /mycars command.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
         else:
             await update.message.reply_text(
                 "There was an error saving your preferences. Please try again later or contact support.",
@@ -648,6 +1078,12 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             del context.user_data['setup_step']
         if 'total_steps' in context.user_data:
             del context.user_data['total_steps']
+        if 'editing' in context.user_data:
+            del context.user_data['editing']
+        if 'edit_index' in context.user_data:
+            del context.user_data['edit_index']
+        if 'all_preferences' in context.user_data:
+            del context.user_data['all_preferences']
             
         return ConversationHandler.END
     
@@ -672,6 +1108,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         del context.user_data['setup_step']
     if 'total_steps' in context.user_data:
         del context.user_data['total_steps']
+    if 'editing' in context.user_data:
+        del context.user_data['editing']
+    if 'edit_index' in context.user_data:
+        del context.user_data['edit_index']
+    if 'all_preferences' in context.user_data:
+        del context.user_data['all_preferences']
     return ConversationHandler.END
 
 def get_car_preferences_conversation(sheets_manager):
@@ -681,6 +1123,8 @@ def get_car_preferences_conversation(sheets_manager):
         entry_points=[CommandHandler("mycars", start_car_setup)],
         states={
             CHOOSE_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_action)],
+            SELECT_PREFERENCE: [CallbackQueryHandler(select_preference)],
+            CONFIRM_DELETE: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete)],
             MAKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, car_make)],
             MODEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, car_model)],
             YEAR: [MessageHandler(filters.TEXT & ~filters.COMMAND, year_range)],
