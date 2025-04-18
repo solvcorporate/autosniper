@@ -1,12 +1,13 @@
 import os
 import logging
-from scraper_manager import get_scraper_manager
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from sheets import get_sheets_manager
 from conversations import get_car_preferences_conversation
+from scraper_manager import get_scraper_manager
+from scheduler import get_scheduler
 
 # Load environment variables
 load_dotenv()
@@ -301,7 +302,11 @@ def main():
                 "Sorry, the car preferences feature is not available right now. Please try again later."
             )
         application.add_handler(CommandHandler("mycars", mycars_fallback))
-
+# Start the scheduler
+    scheduler = get_scheduler()
+    scheduler.start()
+    logger.info("Scheduler started")
+    
     # Start the Bot - using a different approach that works better in cloud environments
     application.run_polling()
 
