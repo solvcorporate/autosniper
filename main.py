@@ -1,5 +1,6 @@
 import os
 import logging
+from scraper_manager import get_scraper_manager
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -217,6 +218,57 @@ async def dealsofweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "Use /subscribe to learn more about our subscription options.",
         parse_mode="MARKDOWN"
     )
+    async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the scrapers to run (admin only)."""
+    user = update.effective_user
+    
+    # Check if user is admin (for now, just a simple check - you might want to improve this)
+    is_admin = user.id == 123456789  # Replace with your actual Telegram ID
+    
+    if not is_admin:
+        await update.message.reply_text(
+            "Sorry, this command is for administrators only."
+        )
+        return
+    
+    # Send initial message
+    status_message = await update.message.reply_text(
+        "🔄 Starting scraper job...\n\n"
+        "This may take a few minutes. I'll update you when it's done."
+    )
+    
+    # Get the scraper manager
+    scraper_manager = get_scraper_manager()
+    
+    # Run the scraper job in a way that doesn't block the bot
+    context.application.create_task(
+        run_scraper_job_background(update, context, status_message, scraper_manager)
+    )
+
+async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                   status_message: "Message", scraper_manager) -> None:
+    """Run the scraper job in the background and update the status message."""
+    try:
+        # Run the scraper job
+        stats = scraper_manager.run_scraper_job()
+        
+        # Update the status message with the results
+        await status_message.edit_text(
+            "✅ Scraper job completed!\n\n"
+            f"📊 Statistics:\n"
+            f"• Processed {stats['preferences']} preferences\n"
+            f"• Found {stats['listings']} listings\n"
+            f"• Saved {stats['saved']} new listings\n"
+            f"• Took {stats['duration_seconds']:.1f} seconds\n\n"
+            f"The system will automatically run scrapers every 15 minutes."
+        )
+    except Exception as e:
+        logger.error(f"Error running scraper job: {e}")
+        await status_message.edit_text(
+            "❌ Error running scraper job.\n\n"
+            f"Error details: {str(e)}\n\n"
+            "Please check the logs for more information."
+        )
 
 def main():
     """Start the bot without using asyncio.run() which can cause issues in some environments"""
@@ -234,7 +286,8 @@ def main():
     application.add_handler(CommandHandler("faq", faq_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
-    
+    # Register admin command to run scrapers manually
+    application.add_handler(CommandHandler("runscraper", run_scrapers_command))
     # Register conversation handler for car preferences
     if sheets_manager:
         car_conversation = get_car_preferences_conversation(sheets_manager)
