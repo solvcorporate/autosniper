@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio  # Add this import
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -8,6 +9,7 @@ from sheets import get_sheets_manager
 from conversations import get_car_preferences_conversation
 from scraper_manager import get_scraper_manager
 from scheduler import get_scheduler
+from alerts import AlertEngine  # Add this import
 
 # Load environment variables
 load_dotenv()
@@ -247,6 +249,105 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
         run_scraper_job_background(update, context, status_message, scraper_manager)
     )
 
+# Add this new function for the alert system
+async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the alert system to send notifications (admin only)."""
+    user = update.effective_user
+    
+    # Check if user is admin (for now, just a simple check - you might want to improve this)
+    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
+    
+    if not is_admin:
+        await update.message.reply_text(
+            "Sorry, this command is for administrators only."
+        )
+        return
+    
+    # Send initial message
+    status_message = await update.message.reply_text(
+        "🔄 Starting to process alerts...\n\n"
+        "This may take a few minutes. I'll update you when it's done."
+    )
+    
+    # Get the scraper manager
+    scraper_manager = get_scraper_manager()
+    
+    # Run the scraper job in a way that doesn't block the bot
+    context.application.create_task(
+        process_alerts_background(update, context, status_message, scraper_manager)
+    )
+
+# Add this function to process alerts in the background
+async def process_alerts_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                   status_message: "Message", scraper_manager) -> None:
+    """Process alert notifications in the background and update the status message."""
+    try:
+        # Get preferences from sheets
+        preferences = scraper_manager.get_preferences_from_sheets()
+        if not preferences:
+            await status_message.edit_text(
+                "❌ No user preferences found. Cannot process alerts."
+            )
+            return
+        
+        # Get all recent listings from sheets (implementation depends on your sheets structure)
+        # This is a placeholder - you'll need to implement this in your sheets_manager
+        listings = []
+        if scraper_manager.sheets_manager:
+            # Assuming a get_recent_listings method exists
+            try:
+                listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
+            except Exception as e:
+                logger.error(f"Error getting listings from sheets: {e}")
+        
+        if not listings:
+            # Run scrapers to get listings if none in sheets
+            listings = scraper_manager.run_scrapers(preferences)
+        
+        if not listings:
+            await status_message.edit_text(
+                "❌ No listings found. Cannot process alerts."
+            )
+            return
+        
+        # Match listings to preferences
+        matches = scraper_manager.match_listings_to_preferences(listings, preferences)
+        
+        if not matches:
+            await status_message.edit_text(
+                "ℹ️ No matches found between listings and user preferences."
+            )
+            return
+        
+        # Initialize the alert engine
+        alert_engine = AlertEngine(context.bot)
+        
+        # Process matches and send alerts
+        alert_stats = await alert_engine.process_matches(
+            matches, 
+            sheets_manager=scraper_manager.sheets_manager
+        )
+        
+        # Update the status message with the results
+        await status_message.edit_text(
+            "✅ Alert processing completed!\n\n"
+            f"📊 Statistics:\n"
+            f"• {alert_stats['total_users']} users had matching listings\n"
+            f"• {alert_stats['total_matches']} total matches were found\n" 
+            f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
+            f"• {alert_stats['users_notified']} users received notifications\n"
+            f"• {alert_stats['failures']} failures occurred\n\n"
+            f"The system will automatically process alerts on the next scraper run."
+        )
+    except Exception as e:
+        logger.error(f"Error processing alerts: {e}")
+        await status_message.edit_text(
+            "❌ Error processing alerts.\n\n"
+            f"Error details: {str(e)}\n\n"
+            "Please check the logs for more information."
+        )
+
+# Update this function to include alert processing
 async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                    status_message: "Message", scraper_manager) -> None:
     """Run the scraper job in the background and update the status message."""
@@ -254,16 +355,59 @@ async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAU
         # Run the scraper job
         stats = scraper_manager.run_scraper_job()
         
+        # Process alerts if matches were found
+        matches_found = False
+        alert_stats = {
+            "total_users": 0,
+            "total_matches": 0,
+            "alerts_sent": 0,
+            "users_notified": 0,
+            "failures": 0
+        }
+        
+        # Check if there are matches to process
+        if stats.get("matches", 0) > 0:
+            # Initialize the alert engine
+            alert_engine = AlertEngine(context.bot)
+            
+            # Get matches from the most recent scraper run (implementation depends on your structure)
+            matches = {}  # This should be populated with actual matches
+            
+            if matches:
+                # Process matches and send alerts
+                alert_stats = await alert_engine.process_matches(
+                    matches, 
+                    sheets_manager=scraper_manager.sheets_manager
+                )
+                matches_found = True
+        
         # Update the status message with the results
-        await status_message.edit_text(
+        result_message = (
             "✅ Scraper job completed!\n\n"
             f"📊 Statistics:\n"
             f"• Processed {stats['preferences']} preferences\n"
             f"• Found {stats['listings']} listings\n"
             f"• Saved {stats['saved']} new listings\n"
-            f"• Took {stats['duration_seconds']:.1f} seconds\n\n"
-            f"The system will automatically run scrapers every 15 minutes."
         )
+        
+        if 'matches' in stats:
+            result_message += f"• Matched {stats['matches']} listings to users\n"
+        
+        if 'grades' in stats:
+            grade_counts = stats['grades']
+            grades_text = ", ".join([f"{grade}: {count}" for grade, count in grade_counts.items() if count > 0])
+            result_message += f"• Grades: {grades_text}\n"
+        
+        result_message += f"• Took {stats['duration_seconds']:.1f} seconds\n"
+        
+        if matches_found:
+            result_message += "\n📨 Alert Processing:\n"
+            result_message += f"• {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users\n"
+            
+            if alert_stats['failures'] > 0:
+                result_message += f"• {alert_stats['failures']} failures occurred\n"
+        
+        await status_message.edit_text(result_message)
     except Exception as e:
         logger.error(f"Error running scraper job: {e}")
         await status_message.edit_text(
@@ -288,8 +432,9 @@ def main():
     application.add_handler(CommandHandler("faq", faq_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
-    # Register admin command to run scrapers manually
+    # Register admin commands
     application.add_handler(CommandHandler("runscraper", run_scrapers_command))
+    application.add_handler(CommandHandler("sendalerts", send_alerts_command))  # Add this line
     
     # Register conversation handler for car preferences
     if sheets_manager:
