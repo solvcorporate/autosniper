@@ -5,6 +5,7 @@ This package contains scrapers for different car listing sites.
 from .base import BaseScraper
 from .autotrader import AutoTraderScraper
 from .gumtree import GumtreeScraper
+from matching import get_matching_engine
 
 __all__ = ['BaseScraper', 'AutoTraderScraper', 'GumtreeScraper', 'get_scraper']
 
