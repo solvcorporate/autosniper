@@ -11,6 +11,7 @@ from datetime import datetime
 # Import the scrapers
 from scrapers import get_scraper
 from sheets import get_sheets_manager
+from matching import get_matching_engine  # Add this import
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +38,9 @@ class ScraperManager:
             "gumtree"
             # More scrapers will be added here as they're implemented
         ]
+        
+        # Initialize the matching engine
+        self.matching_engine = get_matching_engine()  # Add this line
         
         self.logger.info("ScraperManager initialized")
     
@@ -170,6 +174,24 @@ class ScraperManager:
             self.logger.error(f"Error getting preferences from sheets: {e}")
             return []
     
+    # Add this new method
+    def match_listings_to_preferences(self, listings: List[Dict[str, Any]], preferences: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Match listings to user preferences.
+        
+        Args:
+            listings: List of car listing dictionaries
+            preferences: List of user preference dictionaries
+            
+        Returns:
+            Dictionary mapping user_ids to lists of matching listings
+        """
+        if not listings or not preferences:
+            self.logger.warning("No listings or preferences to match")
+            return {}
+        
+        # Use the matching engine to find matches
+        return self.matching_engine.find_matches(listings, preferences)
+    
     def run_scraper_job(self) -> Dict[str, int]:
         """Run a complete scraper job.
         
@@ -177,9 +199,10 @@ class ScraperManager:
         1. Gets all preferences from Google Sheets
         2. Runs all scrapers with those preferences
         3. Saves the found listings to Google Sheets
+        4. Matches listings to user preferences
         
         Returns:
-            Dict with statistics about the job (preferences, listings, saved)
+            Dict with statistics about the job
         """
         start_time = datetime.now()
         self.logger.info(f"Starting scraper job at {start_time}")
@@ -192,6 +215,7 @@ class ScraperManager:
                 "preferences": 0,
                 "listings": 0,
                 "saved": 0,
+                "matches": 0,  # Add this field
                 "duration_seconds": 0
             }
         
@@ -201,16 +225,21 @@ class ScraperManager:
         # Save listings to sheets
         saved_count = self.save_listings(listings)
         
+        # Match listings to preferences
+        matches = self.match_listings_to_preferences(listings, preferences)
+        match_count = sum(len(user_matches) for user_matches in matches.values())
+        
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
         self.logger.info(f"Finished scraper job in {duration:.2f} seconds")
-        self.logger.info(f"Processed {len(preferences)} preferences, found {len(listings)} listings, saved {saved_count}")
+        self.logger.info(f"Processed {len(preferences)} preferences, found {len(listings)} listings, saved {saved_count}, matched {match_count}")
         
         return {
             "preferences": len(preferences),
             "listings": len(listings),
             "saved": saved_count,
+            "matches": match_count,  # Add this field
             "duration_seconds": duration
         }
     
@@ -279,6 +308,9 @@ def test_run():
     logger.info("Testing Gumtree scraper...")
     gumtree_listings = manager.test_scraper('gumtree', test_preferences)
     
+    # Combine listings
+    all_listings = autotrader_listings + gumtree_listings
+    
     # Show results from both scrapers
     logger.info(f"AutoTrader found {len(autotrader_listings)} listings")
     logger.info(f"Gumtree found {len(gumtree_listings)} listings")
@@ -294,7 +326,19 @@ def test_run():
         for key, value in listing.items():
             logger.info(f"  {key}: {value}")
     
-    return autotrader_listings + gumtree_listings
+    # Test matching
+    test_preferences_list = [
+        {
+            'user_id': '123',
+            **test_preferences
+        }
+    ]
+    
+    matches = manager.match_listings_to_preferences(all_listings, test_preferences_list)
+    
+    logger.info(f"Found {len(matches.get('123', []))} matches for test user")
+    
+    return all_listings, matches
 
 
 # For manual testing
