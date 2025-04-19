@@ -6,6 +6,9 @@ import logging
 import re
 from typing import Dict, List, Optional, Any, Tuple
 
+# Import the scoring engine
+from scoring import get_scoring_engine, SAMPLE_MARKET_DATA
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -16,9 +19,16 @@ logger = logging.getLogger("matching")
 class MatchingEngine:
     """Engine for matching car listings to user preferences."""
     
-    def __init__(self):
-        """Initialize the matching engine."""
+    def __init__(self, market_data: Optional[Dict[str, Any]] = None):
+        """Initialize the matching engine.
+        
+        Args:
+            market_data: Optional dictionary with market average data
+        """
         self.logger = logging.getLogger("matching.engine")
+        
+        # Initialize the scoring engine
+        self.scoring_engine = get_scoring_engine(market_data or SAMPLE_MARKET_DATA)
         
     def find_matches(self, listings: List[Dict[str, Any]], user_preferences: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """Find matches between listings and user preferences.
@@ -30,6 +40,9 @@ class MatchingEngine:
         Returns:
             Dictionary mapping user_ids to lists of matching listings
         """
+        # First, score all the listings
+        scored_listings = self.scoring_engine.batch_score_listings(listings)
+        
         matches = {}
         
         # Process each user's preferences
@@ -40,7 +53,7 @@ class MatchingEngine:
                 continue
             
             # Find matching listings for this user's preferences
-            user_matches = self.match_listings_to_preference(listings, preference)
+            user_matches = self.match_listings_to_preference(scored_listings, preference)
             
             # Only include users with matches
             if user_matches:
@@ -61,8 +74,10 @@ class MatchingEngine:
         # Sort each user's matches by score (if present) or price
         for user_id, user_matches in matches.items():
             if user_matches and 'score' in user_matches[0]:
+                # Sort by score (descending) for scored listings
                 matches[user_id] = sorted(user_matches, key=lambda x: x.get('score', 0), reverse=True)
             else:
+                # Fallback to sorting by price (ascending)
                 matches[user_id] = sorted(user_matches, key=lambda x: x.get('price', 0))
         
         return matches
@@ -132,6 +147,10 @@ class MatchingEngine:
             Tuple of (match_result, match_details)
         """
         match_details = {}
+        
+        # Skip suspicious listings (marked by scoring engine)
+        if listing.get('score_details', {}).get('suspicious', False):
+            return False, {}
         
         # Check make - must match unless preference is 'any'
         listing_make = listing.get('make', '').lower()
@@ -213,6 +232,11 @@ class MatchingEngine:
                    match_details.get('fuel_type_match', True) and  # Optional matches
                    match_details.get('transmission_match', True))  # Optional matches
         
+        # Add the score and grade to the match details if present
+        if 'score' in listing:
+            match_details['score'] = listing['score']
+            match_details['grade'] = listing['grade']
+        
         return is_match, match_details
     
     def _extract_location(self, location_str: str) -> str:
@@ -235,19 +259,22 @@ class MatchingEngine:
 
 
 # Helper function to create a matching engine instance
-def get_matching_engine():
+def get_matching_engine(market_data: Optional[Dict[str, Any]] = None):
     """Get a MatchingEngine instance.
     
+    Args:
+        market_data: Optional dictionary with market average data
+        
     Returns:
         MatchingEngine instance
     """
-    return MatchingEngine()
+    return MatchingEngine(market_data)
 
 
 # Test function
 def test_matching():
     """Test the matching engine with sample data."""
-    engine = get_matching_engine()
+    engine = get_matching_engine(SAMPLE_MARKET_DATA)
     
     # Sample listings
     listings = [
@@ -325,6 +352,8 @@ def test_matching():
         print(f"User {user_id} has {len(user_matches)} matches:")
         for match in user_matches:
             print(f"- {match['make']} {match['model']} ({match['year']}): £{match['price']}")
+            if 'score' in match:
+                print(f"  Score: {match['score']} ({match['grade']})")
     
     return matches
 
