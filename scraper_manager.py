@@ -33,7 +33,8 @@ class ScraperManager:
         
         # List of available scrapers
         self.available_scrapers = [
-            "autotrader"
+            "autotrader",
+            "gumtree"
             # More scrapers will be added here as they're implemented
         ]
         
@@ -271,16 +272,29 @@ def test_run():
         'location': 'UK: London'
     }
     
-    # Test a single scraper
+    # Test both scrapers
     logger.info("Testing AutoTrader scraper...")
-    listings = manager.test_scraper('autotrader', test_preferences)
+    autotrader_listings = manager.test_scraper('autotrader', test_preferences)
     
-    for i, listing in enumerate(listings[:5], 1):  # Show first 5 listings
-        logger.info(f"Listing {i}:")
+    logger.info("Testing Gumtree scraper...")
+    gumtree_listings = manager.test_scraper('gumtree', test_preferences)
+    
+    # Show results from both scrapers
+    logger.info(f"AutoTrader found {len(autotrader_listings)} listings")
+    logger.info(f"Gumtree found {len(gumtree_listings)} listings")
+    
+    # Show details of first 5 listings from each
+    for i, listing in enumerate(autotrader_listings[:5], 1):
+        logger.info(f"AutoTrader Listing {i}:")
         for key, value in listing.items():
             logger.info(f"  {key}: {value}")
     
-    return listings
+    for i, listing in enumerate(gumtree_listings[:5], 1):
+        logger.info(f"Gumtree Listing {i}:")
+        for key, value in listing.items():
+            logger.info(f"  {key}: {value}")
+    
+    return autotrader_listings + gumtree_listings
 
 
 # For manual testing
