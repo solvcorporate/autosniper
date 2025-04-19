@@ -11,7 +11,8 @@ from datetime import datetime
 # Import the scrapers
 from scrapers import get_scraper
 from sheets import get_sheets_manager
-from matching import get_matching_engine  # Add this import
+from matching import get_matching_engine
+from scoring import SAMPLE_MARKET_DATA  # Import sample market data
 
 # Configure logging
 logging.basicConfig(
@@ -23,11 +24,12 @@ logger = logging.getLogger("scraper_manager")
 class ScraperManager:
     """Manager for running scrapers and handling listings."""
     
-    def __init__(self, sheets_manager=None):
+    def __init__(self, sheets_manager=None, market_data=None):
         """Initialize the scraper manager.
         
         Args:
             sheets_manager: SheetsManager instance (optional)
+            market_data: Market data for pricing comparisons (optional)
         """
         self.sheets_manager = sheets_manager
         self.logger = logging.getLogger("scraper_manager")
@@ -39,8 +41,8 @@ class ScraperManager:
             # More scrapers will be added here as they're implemented
         ]
         
-        # Initialize the matching engine
-        self.matching_engine = get_matching_engine()  # Add this line
+        # Initialize the matching engine with market data
+        self.matching_engine = get_matching_engine(market_data or SAMPLE_MARKET_DATA)
         
         self.logger.info("ScraperManager initialized")
     
@@ -174,7 +176,6 @@ class ScraperManager:
             self.logger.error(f"Error getting preferences from sheets: {e}")
             return []
     
-    # Add this new method
     def match_listings_to_preferences(self, listings: List[Dict[str, Any]], preferences: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """Match listings to user preferences.
         
@@ -190,6 +191,7 @@ class ScraperManager:
             return {}
         
         # Use the matching engine to find matches
+        # The matching engine will handle scoring the listings
         return self.matching_engine.find_matches(listings, preferences)
     
     def run_scraper_job(self) -> Dict[str, int]:
@@ -199,7 +201,7 @@ class ScraperManager:
         1. Gets all preferences from Google Sheets
         2. Runs all scrapers with those preferences
         3. Saves the found listings to Google Sheets
-        4. Matches listings to user preferences
+        4. Scores and matches listings to preferences
         
         Returns:
             Dict with statistics about the job
@@ -215,7 +217,7 @@ class ScraperManager:
                 "preferences": 0,
                 "listings": 0,
                 "saved": 0,
-                "matches": 0,  # Add this field
+                "matches": 0,
                 "duration_seconds": 0
             }
         
@@ -225,9 +227,20 @@ class ScraperManager:
         # Save listings to sheets
         saved_count = self.save_listings(listings)
         
-        # Match listings to preferences
+        # Match listings to preferences (also handles scoring)
         matches = self.match_listings_to_preferences(listings, preferences)
         match_count = sum(len(user_matches) for user_matches in matches.values())
+        
+        # Count listings by grade
+        grade_counts = {"A+": 0, "A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+        for user_matches in matches.values():
+            for match in user_matches:
+                grade = match.get('grade', 'F')
+                grade_counts[grade] = grade_counts.get(grade, 0) + 1
+        
+        # Log grade distribution
+        grade_summary = ", ".join([f"{grade}: {count}" for grade, count in grade_counts.items() if count > 0])
+        self.logger.info(f"Grade distribution: {grade_summary}")
         
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -239,7 +252,8 @@ class ScraperManager:
             "preferences": len(preferences),
             "listings": len(listings),
             "saved": saved_count,
-            "matches": match_count,  # Add this field
+            "matches": match_count,
+            "grades": grade_counts,
             "duration_seconds": duration
         }
     
@@ -272,9 +286,12 @@ class ScraperManager:
 
 
 # Helper function to get a scraper manager instance
-def get_scraper_manager():
+def get_scraper_manager(market_data=None):
     """Get a ScraperManager instance with sheets integration.
     
+    Args:
+        market_data: Optional market data for price comparisons
+        
     Returns:
         ScraperManager instance
     """
@@ -282,13 +299,13 @@ def get_scraper_manager():
     if not sheets_manager:
         logger.warning("Failed to get sheets_manager, scraper will run without sheets integration")
     
-    return ScraperManager(sheets_manager)
+    return ScraperManager(sheets_manager, market_data)
 
 
 # Simple test function
 def test_run():
     """Run a test scraper job."""
-    manager = get_scraper_manager()
+    manager = get_scraper_manager(SAMPLE_MARKET_DATA)
     
     # Test with simple preferences
     test_preferences = {
@@ -315,18 +332,7 @@ def test_run():
     logger.info(f"AutoTrader found {len(autotrader_listings)} listings")
     logger.info(f"Gumtree found {len(gumtree_listings)} listings")
     
-    # Show details of first 5 listings from each
-    for i, listing in enumerate(autotrader_listings[:5], 1):
-        logger.info(f"AutoTrader Listing {i}:")
-        for key, value in listing.items():
-            logger.info(f"  {key}: {value}")
-    
-    for i, listing in enumerate(gumtree_listings[:5], 1):
-        logger.info(f"Gumtree Listing {i}:")
-        for key, value in listing.items():
-            logger.info(f"  {key}: {value}")
-    
-    # Test matching
+    # Test matching with scoring
     test_preferences_list = [
         {
             'user_id': '123',
@@ -336,7 +342,19 @@ def test_run():
     
     matches = manager.match_listings_to_preferences(all_listings, test_preferences_list)
     
-    logger.info(f"Found {len(matches.get('123', []))} matches for test user")
+    # Show details of matches
+    if '123' in matches:
+        logger.info(f"Found {len(matches['123'])} matches for test user")
+        
+        for i, match in enumerate(matches['123'][:5], 1):  # Show first 5 matches
+            logger.info(f"Match {i}:")
+            logger.info(f"  {match['make']} {match['model']} ({match['year']})")
+            logger.info(f"  Price: £{match['price']}")
+            logger.info(f"  Score: {match.get('score', 'N/A')} ({match.get('grade', 'N/A')})")
+            if 'score_details' in match:
+                details = match['score_details']
+                logger.info(f"  Price Score: {details.get('price_score', 'N/A')}")
+                logger.info(f"  Mileage Score: {details.get('mileage_score', 'N/A')}")
     
     return all_listings, matches
 
