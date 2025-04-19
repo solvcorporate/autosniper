@@ -2,11 +2,11 @@
 Scrapers package for AutoSniper.
 This package contains scrapers for different car listing sites.
 """
-
 from .base import BaseScraper
 from .autotrader import AutoTraderScraper
+from .gumtree import GumtreeScraper
 
-__all__ = ['BaseScraper', 'AutoTraderScraper', 'get_scraper']
+__all__ = ['BaseScraper', 'AutoTraderScraper', 'GumtreeScraper', 'get_scraper']
 
 def get_scraper(scraper_name: str):
     """Get a scraper instance by name.
@@ -19,6 +19,7 @@ def get_scraper(scraper_name: str):
     """
     scrapers = {
         "autotrader": AutoTraderScraper(),
+        "gumtree": GumtreeScraper(),
         # Add more scrapers here as they are implemented
     }
     
