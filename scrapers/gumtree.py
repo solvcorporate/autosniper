@@ -30,89 +30,143 @@ class GumtreeScraper(BaseScraper):
         location = preferences.get('location', '')
         if 'ireland' in location.lower():
             self.base_url = "https://www.gumtree.ie"
+            return self._construct_ireland_url(preferences)
         else:
             self.base_url = "https://www.gumtree.com"
+            return self._construct_uk_url(preferences)
+    
+    def _construct_uk_url(self, preferences: Dict[str, Any]) -> str:
+        """Construct a UK Gumtree search URL.
         
+        Args:
+            preferences: Dictionary of user preferences
+            
+        Returns:
+            String URL for searching
+        """
         # Extract search parameters from preferences
-        make = preferences.get('make', '')
-        model = preferences.get('model', '')
+        make = preferences.get('make', '').lower()
+        model = preferences.get('model', '').lower() if preferences.get('model') else ''
         min_year = preferences.get('min_year', '')
         max_year = preferences.get('max_year', '')
         min_price = preferences.get('min_price', '')
         max_price = preferences.get('max_price', '')
         
+        # For UK, the URL pattern has changed - let's use the correct format
+        # The current structure is: /cars-vans-motorbikes/cars/{make}/{query-params}
+        search_path = "/cars-vans-motorbikes/cars"
+        
+        # Add make to path if provided
+        if make and make.lower() != 'any':
+            search_path += f"/{make}"
+        
         # Build query parameters
         params = {}
         
-        # Different URL structures for UK and Ireland
-        if self.base_url == "https://www.gumtree.com":
-            # UK Gumtree
-            search_path = "/search/cars"
+        # Add model as search query if provided
+        if model and model.lower() != 'any':
+            params['q'] = model
+        
+        # Add price range if provided
+        if min_price:
+            params['min_price'] = min_price
+        if max_price and max_price < 9999999:  # Check if it's not the default max value
+            params['max_price'] = max_price
+        
+        # Add year range if provided
+        if min_year:
+            params['min_vehicle_year'] = min_year
+        if max_year and max_year < 9999:  # Check if it's not the default max value
+            params['max_vehicle_year'] = max_year
             
-            # Add make and model if provided
-            if make and make.lower() != 'any':
-                params['make'] = make.lower()
-                
-                if model and model.lower() != 'any':
-                    params['model'] = model.lower()
+        # Handle location for UK
+        if 'uk:' in location.lower():
+            # Extract the city/region
+            city = location.split(':')[1].strip().lower()
+            if city not in ['london', 'manchester', 'other']:
+                # Add location parameter if it's a specific city
+                params['search_location'] = city
+                params['distance'] = 20  # 20 mile radius
+            elif city == 'london':
+                params['search_location'] = 'London'
+                params['distance'] = 10
+            elif city == 'manchester':
+                params['search_location'] = 'Manchester'
+                params['distance'] = 10
+        
+        # Sort by newest first
+        params['sort'] = 'date'
+        
+        # Construct the URL with parameters
+        url = f"{self.base_url}{search_path}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        
+        return url
+    
+    def _construct_ireland_url(self, preferences: Dict[str, Any]) -> str:
+        """Construct an Ireland Gumtree search URL.
+        
+        Args:
+            preferences: Dictionary of user preferences
             
-            # Add price range if provided
-            if min_price:
-                params['min_price'] = min_price
-            if max_price and max_price < 9999999:  # Check if it's not the default max value
-                params['max_price'] = max_price
-            
-            # Add year range if provided
-            if min_year:
-                params['min_year'] = min_year
-            if max_year and max_year < 9999:  # Check if it's not the default max value
-                params['max_year'] = max_year
-                
-            # Handle location for UK
-            if 'uk:' in location.lower():
-                # Extract the city/region
-                city = location.split(':')[1].strip().lower()
-                if city not in ['london', 'manchester', 'other']:
-                    # Add location parameter if it's a specific city
-                    params['search_location'] = city
-                    params['search_distance'] = 20  # 20 mile radius
-            
-            # Sort by newest first
-            params['sort'] = 'date'
-            
-        else:
-            # Ireland Gumtree
-            search_path = "/cars-for-sale"
-            
-            # For Ireland, URLs are structured differently
-            if make and make.lower() != 'any':
-                search_path += f"/{make.lower()}"
-                
-                if model and model.lower() != 'any':
-                    search_path += f"/{model.lower()}"
-            
-            # Handle location for Ireland
-            if 'ireland:' in location.lower():
-                # Extract the city/region
-                city = location.split(':')[1].strip().lower()
-                if city not in ['dublin', 'cork', 'galway', 'other']:
-                    # Add location parameter if it's a specific city
-                    params['location'] = city
-            
-            # Add price range if provided
-            if min_price:
-                params['min_price'] = min_price
-            if max_price and max_price < 9999999:
-                params['max_price'] = max_price
-            
-            # Year range is handled differently in Ireland site
-            if min_year:
-                params['min_car_year'] = min_year
-            if max_year and max_year < 9999:
-                params['max_car_year'] = max_year
-            
-            # Sort by newest first
-            params['sort'] = 'date_desc'
+        Returns:
+            String URL for searching
+        """
+        # Extract search parameters from preferences
+        make = preferences.get('make', '').lower()
+        model = preferences.get('model', '').lower() if preferences.get('model') else ''
+        min_year = preferences.get('min_year', '')
+        max_year = preferences.get('max_year', '')
+        min_price = preferences.get('min_price', '')
+        max_price = preferences.get('max_price', '')
+        location = preferences.get('location', '')
+        
+        # For Ireland, the URL is different
+        # The structure is: /cars-for-sale-in-ireland
+        search_path = "/cars-for-sale-in-ireland"
+        
+        # Build query parameters
+        params = {}
+        
+        # For Ireland, we use q parameter for make and model
+        search_terms = []
+        if make and make.lower() != 'any':
+            search_terms.append(make)
+        if model and model.lower() != 'any':
+            search_terms.append(model)
+        
+        if search_terms:
+            params['q'] = ' '.join(search_terms)
+        
+        # Add price range if provided
+        if min_price:
+            params['min_price'] = min_price
+        if max_price and max_price < 9999999:
+            params['max_price'] = max_price
+        
+        # Year range is handled differently in Ireland site
+        if min_year:
+            params['min_year'] = min_year
+        if max_year and max_year < 9999:
+            params['max_year'] = max_year
+        
+        # Handle location for Ireland
+        if 'ireland:' in location.lower():
+            # Extract the city/region
+            city = location.split(':')[1].strip().lower()
+            if city not in ['dublin', 'cork', 'galway', 'other']:
+                # Add location parameter if it's a specific city
+                params['location'] = city
+            elif city == 'dublin':
+                params['location'] = 'Dublin'
+            elif city == 'cork':
+                params['location'] = 'Cork'
+            elif city == 'galway':
+                params['location'] = 'Galway'
+        
+        # Sort by newest first
+        params['sort'] = 'date_desc'
         
         # Construct the URL with parameters
         url = f"{self.base_url}{search_path}"
@@ -141,13 +195,15 @@ class GumtreeScraper(BaseScraper):
         
         try:
             if is_uk:
-                # Extract listings for UK site
-                listing_elements = soup.select('.listing-list .listing-list-item')
+                # Extract listings for UK site - updated selectors for current design
+                listing_elements = soup.select('article.listing-maxi')
+                
+                self.logger.info(f"Found {len(listing_elements)} UK listing elements")
                 
                 for element in listing_elements:
                     try:
                         # Skip sponsored listings
-                        if element.select_one('.listing-sponsored'):
+                        if element.select_one('.listing-promoted-label'):
                             continue
                             
                         # Extract listing details
@@ -159,6 +215,8 @@ class GumtreeScraper(BaseScraper):
             else:
                 # Extract listings for Ireland site
                 listing_elements = soup.select('.result')
+                
+                self.logger.info(f"Found {len(listing_elements)} Ireland listing elements")
                 
                 for element in listing_elements:
                     try:
@@ -189,7 +247,7 @@ class GumtreeScraper(BaseScraper):
         """
         try:
             # Get title containing make and model
-            title_element = element.select_one('.listing-title')
+            title_element = element.select_one('h2.listing-title')
             if not title_element:
                 return None
                 
@@ -210,12 +268,18 @@ class GumtreeScraper(BaseScraper):
             
             # Get URL
             url_element = element.select_one('a.listing-link')
+            if not url_element:
+                url_element = title_element.parent if title_element.parent.name == 'a' else None
+                
             url = url_element['href'] if url_element and 'href' in url_element.attrs else ""
             if url and not url.startswith('http'):
                 url = f"{self.base_url}{url}"
             
             # Get price
             price_element = element.select_one('.listing-price')
+            if not price_element:
+                price_element = element.select_one('.price')
+                
             price_text = price_element.text.strip() if price_element else ""
             price = self._extract_price(price_text)
             
