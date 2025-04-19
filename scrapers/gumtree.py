@@ -51,6 +51,7 @@ class GumtreeScraper(BaseScraper):
         max_year = preferences.get('max_year', '')
         min_price = preferences.get('min_price', '')
         max_price = preferences.get('max_price', '')
+        location = preferences.get('location', '')  # Make sure to get location from preferences
         
         # For UK, the URL pattern has changed - let's use the correct format
         # The current structure is: /cars-vans-motorbikes/cars/{make}/{query-params}
@@ -120,7 +121,7 @@ class GumtreeScraper(BaseScraper):
         max_year = preferences.get('max_year', '')
         min_price = preferences.get('min_price', '')
         max_price = preferences.get('max_price', '')
-        location = preferences.get('location', '')
+        location = preferences.get('location', '')  # Get location from preferences
         
         # For Ireland, the URL is different
         # The structure is: /cars-for-sale-in-ireland
@@ -520,3 +521,36 @@ class GumtreeScraper(BaseScraper):
             return None
         except Exception:
             return None
+
+    def search(self, preferences: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search for car listings based on user preferences.
+        
+        Args:
+            preferences: Dictionary of user preferences
+            
+        Returns:
+            List of car listings
+        """
+        try:
+            search_url = self.construct_search_url(preferences)
+            self.logger.info(f"Searching with URL: {search_url}")
+            
+            response = self.make_request(search_url)
+            if not response:
+                self.logger.error("Failed to retrieve search results")
+                return []
+            
+            listings = self.extract_listings(response.text)
+            if not listings:
+                self.logger.info("No listings found")
+                return []
+            
+            # Format all listings to ensure consistency
+            formatted_listings = [self.format_listing(listing) for listing in listings]
+            self.logger.info(f"Found {len(formatted_listings)} listings")
+            
+            return formatted_listings
+            
+        except Exception as e:
+            self.logger.error(f"Error in search method: {e}")
+            return []
