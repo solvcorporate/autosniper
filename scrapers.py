@@ -24,9 +24,11 @@ def get_scraper(scraper_name: str) -> Optional['BaseScraper']:
     """
     # Import here to avoid circular imports
     from scrapers.autotrader import AutoTraderScraper
+    from scrapers.gumtree import GumtreeScraper
     
     scrapers = {
         "autotrader": AutoTraderScraper(),
+        "gumtree": GumtreeScraper(),
         # Add more scrapers here as they are implemented
     }
     
@@ -48,9 +50,11 @@ def run_all_scrapers(preferences_list: List[Dict[str, Any]]) -> Dict[str, List[D
     """
     # Import here to avoid circular imports
     from scrapers.autotrader import AutoTraderScraper
+    from scrapers.gumtree import GumtreeScraper
     
     available_scrapers = {
         "autotrader": AutoTraderScraper(),
+        "gumtree": GumtreeScraper(),
         # Add more scrapers here as they are implemented
     }
     
