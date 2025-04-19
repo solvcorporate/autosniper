@@ -199,5 +199,200 @@ class AutoTraderScraper(BaseScraper):
             price_text = price_element.text.strip() if price_element else ""
             price = self._extract_price(price_text)
             
-            # Get year
-            year_element = element.select_one('.product-card-details__')
+            # Check if the price is suspiciously low (likely misleading)
+            if price and price < 500:  # £500 or €500 threshold
+                return None
+            
+            # Get year from title or description
+            year_element = element.select_one('.product-card-details__subtitle')
+            year = None
+            if year_element:
+                year = self._extract_year(year_element.text)
+            if not year:
+                # Try to find year in title
+                year = self._extract_year(title)
+            
+            # Get mileage
+            mileage = None
+            key_specs = element.select('.atc-field')
+            for spec in key_specs:
+                text = spec.text.strip().lower()
+                if 'miles' in text or 'km' in text:
+                    mileage = self._extract_number(text)
+                    break
+            
+            # Location
+            location_element = element.select_one('.product-card__wrapper .product-card__distance-location')
+            location = location_element.text.strip() if location_element else "Unknown"
+            
+            # Extract additional details if available
+            fuel_type = None
+            transmission = None
+            for spec in key_specs:
+                text = spec.text.strip().lower()
+                if any(fuel in text for fuel in ['petrol', 'diesel', 'electric', 'hybrid']):
+                    fuel_type = text.capitalize()
+                elif any(trans in text for trans in ['manual', 'automatic']):
+                    transmission = text.capitalize()
+            
+            # Construct the listing dictionary
+            listing = {
+                'make': make,
+                'model': model,
+                'year': year,
+                'price': price,
+                'mileage': mileage,
+                'url': url,
+                'location': location,
+                'title': title,
+                'fuel_type': fuel_type,
+                'transmission': transmission
+            }
+            
+            return listing
+        
+        except Exception as e:
+            self.logger.error(f"Error in _extract_uk_listing: {e}")
+            return None
+    
+    def _extract_ie_listing(self, element: BeautifulSoup) -> Optional[Dict[str, Any]]:
+        """Extract details from an Ireland AutoTrader listing.
+        
+        Args:
+            element: BeautifulSoup element for a single listing
+            
+        Returns:
+            Dictionary with listing details or None if extraction failed
+        """
+        try:
+            # Get title containing make and model
+            title_element = element.select_one('.car-list__title')
+            if not title_element:
+                return None
+                
+            title = title_element.text.strip()
+            
+            # Extract make and model from title
+            make_model = title.split(' ', 1)
+            make = make_model[0] if len(make_model) > 0 else ""
+            model = make_model[1] if len(make_model) > 1 else ""
+            
+            # Get URL
+            url_element = title_element.parent
+            url = url_element['href'] if url_element and 'href' in url_element.attrs else ""
+            if url and not url.startswith('http'):
+                url = f"{self.base_url}{url}"
+            
+            # Get price
+            price_element = element.select_one('.car-list__price')
+            price_text = price_element.text.strip() if price_element else ""
+            price = self._extract_price(price_text)
+            
+            # Check if the price is suspiciously low (likely misleading)
+            if price and price < 500:  # €500 threshold
+                return None
+            
+            # Get year from title or description
+            year = self._extract_year(title)
+            if not year:
+                # Try to find year in other elements
+                subtitle_element = element.select_one('.car-list__subtitle')
+                if subtitle_element:
+                    year = self._extract_year(subtitle_element.text)
+            
+            # Get mileage and other details
+            mileage = None
+            fuel_type = None
+            transmission = None
+            
+            detail_elements = element.select('.car-list__details li')
+            for detail in detail_elements:
+                text = detail.text.strip().lower()
+                if 'km' in text or 'miles' in text:
+                    mileage = self._extract_number(text)
+                elif any(fuel in text for fuel in ['petrol', 'diesel', 'electric', 'hybrid']):
+                    fuel_type = text.capitalize()
+                elif any(trans in text for trans in ['manual', 'automatic']):
+                    transmission = text.capitalize()
+            
+            # Location
+            location_element = element.select_one('.car-list__seller-location')
+            location = location_element.text.strip() if location_element else "Ireland"
+            
+            # Construct the listing dictionary
+            listing = {
+                'make': make,
+                'model': model,
+                'year': year,
+                'price': price,
+                'mileage': mileage,
+                'url': url,
+                'location': location,
+                'title': title,
+                'fuel_type': fuel_type,
+                'transmission': transmission
+            }
+            
+            return listing
+        
+        except Exception as e:
+            self.logger.error(f"Error in _extract_ie_listing: {e}")
+            return None
+    
+    def _extract_price(self, price_text: str) -> Optional[int]:
+        """Extract a numeric price from price text.
+        
+        Args:
+            price_text: Text containing a price
+            
+        Returns:
+            Integer price or None if extraction failed
+        """
+        try:
+            # Remove currency symbols and commas
+            cleaned = price_text.replace('£', '').replace('€', '').replace(',', '').strip()
+            
+            # Extract first number found
+            match = re.search(r'\d+', cleaned)
+            if match:
+                return int(match.group())
+            return None
+        except Exception:
+            return None
+    
+    def _extract_year(self, text: str) -> Optional[int]:
+        """Extract a year (4-digit number between 1990 and current year) from text.
+        
+        Args:
+            text: Text that might contain a year
+            
+        Returns:
+            Integer year or None if extraction failed
+        """
+        try:
+            # Look for 4-digit numbers that could be years (between 1990 and 2030)
+            matches = re.findall(r'\b(19[9][0-9]|20[0-2][0-9]|2030)\b', text)
+            if matches:
+                return int(matches[0])
+            return None
+        except Exception:
+            return None
+    
+    def _extract_number(self, text: str) -> Optional[int]:
+        """Extract a numeric value from text.
+        
+        Args:
+            text: Text containing a number
+            
+        Returns:
+            Integer number or None if extraction failed
+        """
+        try:
+            # Remove commas and extract first number found
+            cleaned = text.replace(',', '').strip()
+            match = re.search(r'\d+', cleaned)
+            if match:
+                return int(match.group())
+            return None
+        except Exception:
+            return None
