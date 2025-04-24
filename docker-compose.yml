@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  autosniper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - GOOGLE_SHEETS_ID=${GOOGLE_SHEETS_ID}
+      - GOOGLE_SHEETS_CREDENTIALS=${GOOGLE_SHEETS_CREDENTIALS}
+      - USE_SELENIUM=true
+    volumes:
+      - .:/app
+    restart: always
