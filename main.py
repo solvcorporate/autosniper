@@ -10,7 +10,6 @@ from conversations import get_car_preferences_conversation
 from scraper_manager import get_scraper_manager
 from scheduler import get_scheduler
 from alerts import AlertEngine
-from scrapers import is_selenium_enabled  # Add this import
 
 # Load environment variables
 load_dotenv()
@@ -250,46 +249,6 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
         run_scraper_job_background(update, context, status_message, scraper_manager)
     )
 
-# Add this new function for toggling Selenium scrapers
-async def toggle_selenium_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Toggle between normal and Selenium-based scrapers (admin only)."""
-    user = update.effective_user
-    
-    # Check if user is admin
-    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
-    
-    if not is_admin:
-        await update.message.reply_text(
-            "Sorry, this command is for administrators only."
-        )
-        return
-    
-    # Check the current state
-    current_state = os.getenv('USE_SELENIUM', 'false').lower() == 'true'
-    
-    # Toggle the state
-    new_state = not current_state
-    
-    # Update the environment variable
-    # Note: This only affects the current process and won't persist across restarts
-    os.environ['USE_SELENIUM'] = str(new_state).lower()
-    
-    # Inform the user
-    if new_state:
-        await update.message.reply_text(
-            "✅ Selenium-based scrapers are now *ENABLED*.\n\n"
-            "This setting will improve scraping capabilities by using browser emulation to bypass bot detection.\n\n"
-            "Note: This setting will revert to default after a restart unless you set the USE_SELENIUM environment variable in your hosting platform.",
-            parse_mode="MARKDOWN"
-        )
-    else:
-        await update.message.reply_text(
-            "❌ Selenium-based scrapers are now *DISABLED*.\n\n"
-            "Reverting to standard BeautifulSoup-based scrapers.\n\n"
-            "Note: This setting will revert to default after a restart unless you set the USE_SELENIUM environment variable in your hosting platform.",
-            parse_mode="MARKDOWN"
-        )
-
 # Add this new function for the alert system
 async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the alert system to send notifications (admin only)."""
@@ -441,9 +400,6 @@ async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAU
         
         result_message += f"• Took {stats['duration_seconds']:.1f} seconds\n"
         
-        # Add information about Selenium usage
-        result_message += f"• Selenium scrapers: {'Enabled' if is_selenium_enabled() else 'Disabled'}\n"
-        
         if matches_found:
             result_message += "\n📨 Alert Processing:\n"
             result_message += f"• {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users\n"
@@ -478,8 +434,7 @@ def main():
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
     # Register admin commands
     application.add_handler(CommandHandler("runscraper", run_scrapers_command))
-    application.add_handler(CommandHandler("sendalerts", send_alerts_command))  # Add this line
-    application.add_handler(CommandHandler("toggleselenium", toggle_selenium_command))  # Add this line
+    application.add_handler(CommandHandler("sendalerts", send_alerts_command))
     
     # Register conversation handler for car preferences
     if sheets_manager:
