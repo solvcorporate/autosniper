@@ -281,8 +281,8 @@ async def process_subscription(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         # Create a Stripe checkout session
         # For testing, use your bot's username
-        success_url = "https://t.me/autosniper_bot?start=payment_success"
-        cancel_url = "https://t.me/autosniper_bot?start=payment_cancel"
+        success_url = "https://t.me/autosniprbot?start=payment_success"
+        cancel_url = "https://t.me/autosniprbot?start=payment_cancel"
         
         checkout_url = payment_manager.create_checkout_session(
             user_id=user.id,
