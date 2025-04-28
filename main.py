@@ -597,8 +597,8 @@ def main():
     application.add_handler(CommandHandler("demo", demo_command))
     application.add_handler(CommandHandler("faq", faq_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
-    application.add_handler(CommandHandler("subscribe_basic", subscribe_basic_command))
-    application.add_handler(CommandHandler("subscribe_premium", subscribe_premium_command))
+    application.add_handler(CommandHandler("subscribebasic", subscribe_basic_command))
+    application.add_handler(CommandHandler("subscribepremium", subscribe_premium_command))
     application.add_handler(CommandHandler("managesubscription", managesubscription_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
     # Register admin commands
