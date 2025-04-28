@@ -1,2 +1,1 @@
-worker: python main.py
-web: python webhook.py
+web: python webhook.py & python main.py
