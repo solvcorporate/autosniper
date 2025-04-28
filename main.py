@@ -2,14 +2,16 @@ import os
 import logging
 import asyncio
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from sheets import get_sheets_manager
 from conversations import get_car_preferences_conversation
 from scraper_manager import get_scraper_manager
 from scheduler import get_scheduler
 from alerts import AlertEngine
+from payments import get_payment_manager
+from subscription import get_subscription_manager, SUBSCRIPTION_FEATURES
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +30,33 @@ sheets_manager = get_sheets_manager()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcoming and engaging introduction when the command /start is issued."""
     user = update.effective_user
+    
+    # Check if this is a deep link with a specific parameter
+    deep_link = context.args[0] if context.args else None
+    
+    if deep_link == "payment_success":
+        # Handle successful payment
+        subscription_manager = get_subscription_manager()
+        current_tier = subscription_manager.get_user_tier(user.id)
+        
+        await update.message.reply_text(
+            f"🎉 *Payment Successful!* 🎉\n\n"
+            f"Your {current_tier} subscription has been activated. Thank you for supporting AutoSniper!\n\n"
+            f"Use /managesubscription to view your subscription details.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
+    elif deep_link == "payment_cancel":
+        # Handle cancelled payment
+        await update.message.reply_text(
+            "Your payment was cancelled.\n\n"
+            "If you encountered any issues or have questions, feel free to try again or contact support.\n\n"
+            "Use /subscribe to view subscription options.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
     welcome_message = (
         f"👋 *Welcome to AutoSniper, {user.first_name}!*\n\n"
         f"🚗 I'm your personal car deal hunter that never sleeps.\n\n"
@@ -70,7 +99,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/demo - View sample car alerts\n"
         "/faq - Frequently asked questions\n"
         "/mycars - View and manage your car preferences\n"
-        "/subscribe - Choose between Basic (€10) and Premium (€25) tiers\n"
+        "/subscribe - View subscription options\n"
+        "/subscribe_basic - Subscribe to Basic plan (€10/month)\n"
+        "/subscribe_premium - Subscribe to Premium plan (€20/month)\n"
+        "/managesubscription - View and manage your current subscription\n"
         "/dealsofweek - View this week's top deals (Premium only)\n\n"
         
         "You can cancel any ongoing setup process by typing 'cancel' at any point.\n\n"
@@ -155,7 +187,7 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     cta_message = (
         "*Ready to find your next car at an unbeatable price?*\n\n"
         "AutoSniper continuously monitors multiple platforms to find deals like these matching your criteria.\n\n"
-        "Use the /mycars command to set up your preferences now!"
+        "Use the /mycars command to set up your preferences!"
     )
     
     await update.message.reply_text(cta_message, parse_mode="MARKDOWN")
@@ -173,7 +205,7 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "A: We currently monitor AutoTrader, Gumtree, Facebook Marketplace, and DoneDeal, with more platforms coming soon.\n\n"
         
         "*Q: What subscription options are available?*\n"
-        "A: We offer two tiers: Basic (€10/month) and Premium (€25/month). Premium subscribers get access to additional features, priority alerts, and exclusive content not available to Basic users.\n\n"
+        "A: We offer two tiers: Basic (€10/month) and Premium (€20/month). Premium subscribers get access to additional features, priority alerts, and exclusive content not available to Basic users.\n\n"
         
         "*Q: How do I tell AutoSniper what cars I'm looking for?*\n"
         "A: Simply chat with the bot! Tell it what make, model, price range, and other details you're interested in. The bot will guide you through a simple conversation to collect your preferences.\n\n"
@@ -194,31 +226,165 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /subscribe command to manage subscription tiers."""
+    # Get subscription manager
+    subscription_manager = get_subscription_manager()
+    
+    # Get user's current subscription tier
+    user_id = update.effective_user.id
+    current_tier = subscription_manager.get_user_tier(user_id)
+    
+    # Check if user already has an active subscription
+    if current_tier in ['Basic', 'Premium']:
+        await update.message.reply_text(
+            f"You currently have an active *{current_tier}* subscription.\n\n"
+            f"To upgrade or manage your subscription, please use /managesubscription.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
+    # Show subscription options
+    basic_features = "\n".join([f"• {feature}" for feature in SUBSCRIPTION_FEATURES['Basic']['features']])
+    premium_features = "\n".join([f"• {feature}" for feature in SUBSCRIPTION_FEATURES['Premium']['features']])
+    
     subscribe_text = (
         "*AutoSniper Subscription Options*\n\n"
-        "🔹 *Basic Plan: €10/month*\n"
-        "• Multiple car listings monitored\n"
-        "• Regular deal alerts\n"
-        "• Custom car preferences\n\n"
-        
-        "🔸 *Premium Plan: €25/month*\n"
-        "• All Basic features\n"
-        "• Priority alerts for new deals\n"
-        "• Access to all monitored platforms\n"
-        "• Exclusive Deals of the Week\n"
-        "• Advanced filtering options\n\n"
-        
-        "Payment system coming soon. Stay tuned!"
+        f"{SUBSCRIPTION_FEATURES['Basic']['emoji']} *{SUBSCRIPTION_FEATURES['Basic']['name']}: {SUBSCRIPTION_FEATURES['Basic']['price']}*\n"
+        f"{basic_features}\n\n"
+        f"{SUBSCRIPTION_FEATURES['Premium']['emoji']} *{SUBSCRIPTION_FEATURES['Premium']['name']}: {SUBSCRIPTION_FEATURES['Premium']['price']}*\n"
+        f"{premium_features}\n\n"
+        "To subscribe, use one of these commands:\n"
+        "/subscribe_basic - Subscribe to the Basic Plan\n"
+        "/subscribe_premium - Subscribe to the Premium Plan"
     )
     await update.message.reply_text(subscribe_text, parse_mode="MARKDOWN")
+
+async def subscribe_basic_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /subscribe_basic command to subscribe to the Basic plan."""
+    await process_subscription(update, context, 'Basic')
+
+async def subscribe_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /subscribe_premium command to subscribe to the Premium plan."""
+    await process_subscription(update, context, 'Premium')
+
+async def process_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE, tier: str) -> None:
+    """Process subscription for a specific tier."""
+    user = update.effective_user
     
+    # Get payment manager
+    payment_manager = get_payment_manager()
+    
+    # Send initial message
+    message = await update.message.reply_text(
+        f"Creating your {tier} subscription checkout... One moment please."
+    )
+    
+    try:
+        # Create a Stripe checkout session
+        # For testing, use your bot's username
+        success_url = "https://t.me/autosniper_bot?start=payment_success"
+        cancel_url = "https://t.me/autosniper_bot?start=payment_cancel"
+        
+        checkout_url = payment_manager.create_checkout_session(
+            user_id=user.id,
+            tier=tier,
+            success_url=success_url,
+            cancel_url=cancel_url
+        )
+        
+        if not checkout_url:
+            await message.edit_text(
+                "Sorry, there was an error creating your checkout session. Please try again later."
+            )
+            return
+        
+        # Create an inline keyboard with the payment link
+        keyboard = [[InlineKeyboardButton(f"Pay {SUBSCRIPTION_FEATURES[tier]['price']}", url=checkout_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send payment link
+        await message.edit_text(
+            f"Great! Click the button below to complete your {tier} subscription payment.\n\n"
+            f"Once completed, you'll have access to all {tier} features!",
+            reply_markup=reply_markup
+        )
+    
+    except Exception as e:
+        logger.error(f"Error processing subscription: {e}")
+        await message.edit_text(
+            "Sorry, there was an error processing your subscription request. Please try again later."
+        )
+
+async def managesubscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /managesubscription command to view and manage subscription."""
+    user_id = update.effective_user.id
+    
+    # Get subscription manager
+    subscription_manager = get_subscription_manager()
+    
+    # Get user's subscription details
+    subscription = subscription_manager.get_subscription_details(user_id)
+    
+    # Format the details for display
+    tier = subscription.get('tier', 'None')
+    is_active = subscription.get('active', False)
+    expiration_date = subscription.get('expiration_date', 'Unknown')
+    
+    if tier == 'None' or not is_active:
+        # User has no active subscription
+        await update.message.reply_text(
+            "You don't have an active subscription.\n\n"
+            "Use /subscribe to view available subscription options.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
+    # Display subscription details
+    message = (
+        f"*Your {tier} Subscription*\n\n"
+        f"Status: {'Active' if is_active else 'Inactive'}\n"
+        f"Expires: {expiration_date}\n\n"
+    )
+    
+    # Add tier-specific features
+    if tier in SUBSCRIPTION_FEATURES:
+        features = "\n".join([f"• {feature}" for feature in SUBSCRIPTION_FEATURES[tier]['features']])
+        message += f"Your features include:\n{features}\n\n"
+    
+    # Add management options
+    if tier == 'Basic':
+        message += "Want more features? Use /subscribe_premium to upgrade to Premium!"
+    
+    await update.message.reply_text(
+        message,
+        parse_mode="MARKDOWN"
+    )
+
 async def dealsofweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /dealsofweek command to show the best deals (Premium only)."""
+    user_id = update.effective_user.id
+    
+    # Check if user has premium subscription
+    subscription_manager = get_subscription_manager()
+    is_premium = subscription_manager.is_user_premium(user_id)
+    
+    if not is_premium:
+        await update.message.reply_text(
+            "*Deals of the Week - Premium Feature*\n\n"
+            "This premium feature provides a curated list of the absolute best deals across all categories.\n\n"
+            "Premium subscription required to access this feature.\n\n"
+            "Use /subscribe to learn about our subscription options.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
+    # If user is premium, show them the deals
     await update.message.reply_text(
         "*Deals of the Week*\n\n"
-        "This premium feature provides a curated list of the absolute best deals across all categories.\n\n"
-        "Premium subscription required to access this feature.\n\n"
-        "Use /subscribe to learn more about our subscription options.",
+        "Here are this week's top car deals, curated especially for our premium subscribers:\n\n"
+        "1. *2019 BMW 3 Series* - €21,500 (15% below market) - A+ Deal\n"
+        "2. *2020 Audi A4* - €24,750 (12% below market) - A Deal\n"
+        "3. *2018 Mercedes C-Class* - €19,900 (10% below market) - B+ Deal\n\n"
+        "For full details and more premium deals, check back weekly for updates!",
         parse_mode="MARKDOWN"
     )
 
@@ -431,6 +597,9 @@ def main():
     application.add_handler(CommandHandler("demo", demo_command))
     application.add_handler(CommandHandler("faq", faq_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
+    application.add_handler(CommandHandler("subscribe_basic", subscribe_basic_command))
+    application.add_handler(CommandHandler("subscribe_premium", subscribe_premium_command))
+    application.add_handler(CommandHandler("managesubscription", managesubscription_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
     # Register admin commands
     application.add_handler(CommandHandler("runscraper", run_scrapers_command))
