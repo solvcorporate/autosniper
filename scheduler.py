@@ -57,6 +57,9 @@ class Scheduler:
         # Run the scraper once at startup (after a short delay)
         schedule.every(1).minutes.do(self._run_initial_scraper_job).tag('startup')
         
+        # Add this line to check for expired subscriptions daily
+        schedule.every().day.at("00:00").do(self._check_expired_subscriptions)
+        
         self.logger.info("Jobs scheduled")
         
         while self.running:
@@ -86,7 +89,28 @@ class Scheduler:
         schedule.clear('startup')
         
         return result
-
+    
+    def _check_expired_subscriptions(self):
+        """Check for expired subscriptions and update status."""
+        try:
+            self.logger.info("Checking for expired subscriptions")
+            
+            # Get sheets manager
+            from sheets import get_sheets_manager
+            sheets_manager = get_sheets_manager()
+            
+            if not sheets_manager:
+                self.logger.error("Failed to get sheets_manager")
+                return
+            
+            # Check for expired subscriptions
+            count = sheets_manager.check_subscriptions_expiry()
+            
+            self.logger.info(f"Updated {count} expired subscriptions")
+            return count
+        except Exception as e:
+            self.logger.error(f"Error checking expired subscriptions: {e}")
+            return 0
 
 # Global scheduler instance
 _scheduler = None
