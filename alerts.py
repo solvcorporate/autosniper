@@ -30,69 +30,69 @@ class AlertEngine:
         self.bot = bot
     
     async def process_matches(self, user_matches: Dict[str, List[Dict[str, Any]]], sheets_manager=None) -> Dict[str, int]:
-        """Process matches and send alerts to users.
+    """Process matches and send alerts to users.
+    
+    Args:
+        user_matches: Dictionary mapping user_ids to lists of matching listings
+        sheets_manager: Optional SheetsManager instance for updating notification status
         
-        Args:
-            user_matches: Dictionary mapping user_ids to lists of matching listings
-            sheets_manager: Optional SheetsManager instance for updating notification status
+    Returns:
+        Dictionary with statistics about alerts sent
+    """
+    alert_stats = {
+        "total_users": len(user_matches),
+        "total_matches": sum(len(matches) for matches in user_matches.values()),
+        "alerts_sent": 0,
+        "failures": 0,
+        "users_notified": 0
+    }
+    
+    self.logger.info(f"Processing matches for {alert_stats['total_users']} users with {alert_stats['total_matches']} total matches")
+    
+    # Process each user's matches
+    for user_id, matches in user_matches.items():
+        if not matches:
+            continue
             
-        Returns:
-            Dictionary with statistics about alerts sent
-        """
-        alert_stats = {
-            "total_users": len(user_matches),
-            "total_matches": sum(len(matches) for matches in user_matches.values()),
-            "alerts_sent": 0,
-            "failures": 0,
-            "users_notified": 0
-        }
+        # Sort matches by score if available, otherwise by price
+        if 'score' in matches[0]:
+            sorted_matches = sorted(matches, key=lambda x: x.get('score', 0), reverse=True)
+        else:
+            sorted_matches = sorted(matches, key=lambda x: x.get('price', 0))
         
-        self.logger.info(f"Processing matches for {alert_stats['total_users']} users with {alert_stats['total_matches']} total matches")
-        
-        # Process each user's matches
-        for user_id, matches in user_matches.items():
-            if not matches:
-                continue
-                
-            # Sort matches by score if available, otherwise by price
-            if 'score' in matches[0]:
-                sorted_matches = sorted(matches, key=lambda x: x.get('score', 0), reverse=True)
-            else:
-                sorted_matches = sorted(matches, key=lambda x: x.get('price', 0))
+        # Send alerts for this user's top matches
+        user_alert_count = 0
+        try:
+            # Get user's subscription tier from the first match (all matches should have same user_id)
+            user_subscription = self._get_user_subscription(matches[0], sheets_manager)
             
-            # Send alerts for this user's top matches
-            user_alert_count = 0
-            try:
-                # Get user's subscription tier from the first match (all matches should have same user_id)
-                user_subscription = self._get_user_subscription(matches[0], sheets_manager)
-                
-                # Determine how many alerts to send based on subscription tier
-                max_alerts = self._get_max_alerts(user_subscription)
-                
-                # Send alerts up to the maximum
-                for match in sorted_matches[:max_alerts]:
-                    if await self.send_alert(user_id, match):
-                        user_alert_count += 1
-                        alert_stats["alerts_sent"] += 1
-                        
-                        # Update notification status in Google Sheets if a sheets_manager is provided
-                        if sheets_manager:
-                            self._update_notification_status(match, user_id, sheets_manager)
-                    else:
-                        alert_stats["failures"] += 1
-                
-            except Exception as e:
-                self.logger.error(f"Error processing alerts for user {user_id}: {e}")
-                alert_stats["failures"] += 1
+            # Determine how many alerts to send based on subscription tier
+            max_alerts = self._get_max_alerts(user_subscription)
             
-            # Count user as notified if at least one alert was sent
-            if user_alert_count > 0:
-                alert_stats["users_notified"] += 1
-                
-            self.logger.info(f"Sent {user_alert_count} alerts to user {user_id}")
+            # Send alerts up to the maximum
+            for match in sorted_matches[:max_alerts]:
+                if await self.send_alert(user_id, match):
+                    user_alert_count += 1
+                    alert_stats["alerts_sent"] += 1
+                    
+                    # Update notification status in Google Sheets if a sheets_manager is provided
+                    if sheets_manager:
+                        self._update_notification_status(match, user_id, sheets_manager)
+                else:
+                    alert_stats["failures"] += 1
+            
+        except Exception as e:
+            self.logger.error(f"Error processing alerts for user {user_id}: {e}")
+            alert_stats["failures"] += 1
         
-        self.logger.info(f"Alert processing complete: {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users")
-        return alert_stats
+        # Count user as notified if at least one alert was sent
+        if user_alert_count > 0:
+            alert_stats["users_notified"] += 1
+            
+        self.logger.info(f"Sent {user_alert_count} alerts to user {user_id}")
+    
+    self.logger.info(f"Alert processing complete: {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users")
+    return alert_stats
     
     async def send_alert(self, user_id: str, match: Dict[str, Any]) -> bool:
         """Send an alert to a user about a matching car listing.
