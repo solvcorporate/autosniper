@@ -59,33 +59,87 @@ class ScraperManager:
         
         self.logger.info(f"Running scrapers for {len(preferences_list)} preference sets")
         
-        # Run each scraper
-        for scraper_name in self.available_scrapers:
-            try:
-                scraper = get_scraper(scraper_name)
-                if not scraper:
-                    self.logger.warning(f"Scraper '{scraper_name}' not found")
-                    continue
-                
-                self.logger.info(f"Running scraper: {scraper_name}")
-                listings = scraper.run_scraper(preferences_list)
-                
-                self.logger.info(f"Scraper {scraper_name} found {len(listings)} listings")
-                all_listings.extend(listings)
-                
-                # Add a delay between scrapers to avoid network overload
-                if scraper_name != self.available_scrapers[-1]:
-                    delay = 2 + random.random() * 3  # 2-5 seconds
-                    time.sleep(delay)
-                
-            except Exception as e:
-                self.logger.error(f"Error running scraper {scraper_name}: {e}")
+        # Group preferences by user_id to check subscription tier
+        preferences_by_user = {}
+        for pref in preferences_list:
+            user_id = pref.get('user_id')
+            if user_id:
+                if user_id not in preferences_by_user:
+                    preferences_by_user[user_id] = []
+                preferences_by_user[user_id].append(pref)
+            else:
+                # If no user_id, add to a special group
+                if 'no_user' not in preferences_by_user:
+                    preferences_by_user['no_user'] = []
+                preferences_by_user['no_user'].append(pref)
+        
+        # Process each user's preferences with appropriate scrapers
+        for user_id, user_prefs in preferences_by_user.items():
+            # Determine which scrapers to use based on subscription tier
+            user_scrapers = self._get_scrapers_for_user(user_id)
+            
+            self.logger.info(f"Using {len(user_scrapers)} scrapers for user {user_id}")
+            
+            # Run selected scrapers for this user
+            for scraper_name in user_scrapers:
+                try:
+                    scraper = get_scraper(scraper_name)
+                    if not scraper:
+                        self.logger.warning(f"Scraper '{scraper_name}' not found")
+                        continue
+                    
+                    self.logger.info(f"Running scraper: {scraper_name} for user {user_id}")
+                    listings = scraper.run_scraper(user_prefs)
+                    
+                    self.logger.info(f"Scraper {scraper_name} found {len(listings)} listings")
+                    all_listings.extend(listings)
+                    
+                    # Add a delay between scrapers to avoid network overload
+                    if scraper_name != user_scrapers[-1]:
+                        delay = 2 + random.random() * 3  # 2-5 seconds
+                        time.sleep(delay)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error running scraper {scraper_name}: {e}")
         
         # Apply deduplication
         unique_listings = self._deduplicate_listings(all_listings)
         self.logger.info(f"Found {len(unique_listings)} unique listings after deduplication")
         
         return unique_listings
+    
+    def _get_scrapers_for_user(self, user_id: str) -> List[str]:
+        """Get the list of scrapers available for a user based on subscription tier.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            List of scraper names available to the user
+        """
+        # Base scrapers available to all users
+        free_scrapers = ["autotrader", "gumtree"]
+        
+        # Additional scrapers for paying users
+        basic_scrapers = free_scrapers  # For now, same as free until we add more scrapers
+        premium_scrapers = basic_scrapers  # For now, same as basic until we add more scrapers
+        
+        if user_id == 'no_user' or not self.sheets_manager:
+            return free_scrapers  # Default to free scrapers if no user_id or sheets_manager
+        
+        try:
+            # Get the user's subscription tier
+            subscription_tier = self.sheets_manager.get_subscription_tier(user_id)
+            
+            if subscription_tier == 'Premium':
+                return premium_scrapers
+            elif subscription_tier == 'Basic':
+                return basic_scrapers
+            else:
+                return free_scrapers
+        except Exception as e:
+            self.logger.error(f"Error getting scrapers for user {user_id}: {e}")
+            return free_scrapers  # Default to free scrapers on error
     
     def _deduplicate_listings(self, listings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate listings.
