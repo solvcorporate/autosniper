@@ -166,7 +166,7 @@ class AlertEngine:
             self.logger.error(f"Error sending alert to user {user_id}: {e}")
             return False
     
-def _generate_alert_message(self, match: Dict[str, Any]) -> str:
+    def _generate_alert_message(self, match: Dict[str, Any]) -> str:
         """Generate an alert message for a matching car listing.
         
         Args:
@@ -343,6 +343,7 @@ def _generate_alert_message(self, match: Dict[str, Any]) -> str:
             return ""
             
         return "\n".join(assessment_parts)
+        
     def _update_notification_status(self, match: Dict[str, Any], user_id: str, sheets_manager) -> bool:
         """Update the notification status in Google Sheets.
         
