@@ -12,6 +12,7 @@ from scheduler import get_scheduler
 from alerts import AlertEngine
 from payments import get_payment_manager
 from subscription import get_subscription_manager, SUBSCRIPTION_FEATURES
+from middleware import get_subscription_middleware
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize Google Sheets manager
 sheets_manager = get_sheets_manager()
+
+# Initialize subscription middleware
+subscription_middleware = get_subscription_middleware()
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -92,7 +96,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
-    help_text = (
+    user_id = update.effective_user.id
+    
+    # Get user's subscription status
+    subscription_manager = get_subscription_manager()
+    is_premium = subscription_manager.is_user_premium(user_id)
+    has_subscription = subscription_manager.has_active_subscription(user_id)
+    
+    # Base commands
+    base_commands = (
         "🔍 *AutoSniper Commands:*\n\n"
         "/start - Begin interaction with AutoSniper\n"
         "/help - Show this help message\n"
@@ -103,16 +115,47 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/subscribe_basic - Subscribe to Basic plan (€10/month)\n"
         "/subscribe_premium - Subscribe to Premium plan (€20/month)\n"
         "/managesubscription - View and manage your current subscription\n"
-        "/dealsofweek - View this week's top deals (Premium only)\n\n"
-        
+    )
+    
+    # Premium commands - format differently based on user's subscription
+    premium_commands = ""
+    if is_premium:
+        premium_commands = (
+            "*Premium Commands:* ✨\n"
+            "/dealsofweek - View this week's top deals\n"
+            "/car_details [number] - Get detailed information about a specific deal\n\n"
+        )
+    else:
+        premium_commands = (
+            "*Premium Commands:* 🔒\n"
+            "/dealsofweek - View this week's top deals (Premium only)\n"
+            "/car_details [number] - Get detailed information about a specific deal (Premium only)\n\n"
+        )
+    
+    # Additional info
+    additional_info = (
         "You can cancel any ongoing setup process by typing 'cancel' at any point.\n\n"
         
         "🚗 *Coming Soon:*\n"
         "• WhatsApp integration\n"
         "• Referral program\n\n"
-        
-        "Have questions? Contact us at solvcorporate@gmail.com"
     )
+    
+    # Subscription status
+    subscription_status = ""
+    if is_premium:
+        subscription_status = "🔸 *Your Status:* Premium Subscriber\n\n"
+    elif has_subscription:
+        subscription_status = "🔹 *Your Status:* Basic Subscriber\n\n"
+    else:
+        subscription_status = "⚪ *Your Status:* Free User\n\n"
+    
+    # Support info
+    support_info = "Have questions? Contact us at solvcorporate@gmail.com"
+    
+    # Combine all sections
+    help_text = base_commands + "\n" + premium_commands + subscription_status + additional_info + support_info
+    
     await update.message.reply_text(help_text, parse_mode="MARKDOWN")
 
 async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -359,34 +402,116 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
         parse_mode="MARKDOWN"
     )
 
+@subscription_middleware.premium_required
 async def dealsofweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /dealsofweek command to show the best deals (Premium only)."""
     user_id = update.effective_user.id
     
-    # Check if user has premium subscription
-    subscription_manager = get_subscription_manager()
-    is_premium = subscription_manager.is_user_premium(user_id)
+    # If user is premium, show them the deals
+    # Send a loading message
+    loading_message = await update.message.reply_text(
+        "🔍 *Finding this week's best deals...*",
+        parse_mode="MARKDOWN"
+    )
     
-    if not is_premium:
+    try:
+        # Get the deals manager
+        from dealsofweek import get_deals_of_week_manager
+        from sheets import get_sheets_manager
+        
+        sheets_manager = get_sheets_manager()
+        deals_manager = get_deals_of_week_manager(sheets_manager)
+        
+        # Get the top deals (limited to 10)
+        top_deals = deals_manager.get_deals_of_week(max_deals=10)
+        
+        # Format the deals as a message
+        deals_message = deals_manager.format_deals_of_week_message(top_deals)
+        
+        # Store the deals in context for later reference
+        if 'deals_of_week' not in context.bot_data:
+            context.bot_data['deals_of_week'] = {}
+        context.bot_data['deals_of_week'][user_id] = top_deals
+        
+        # Update the loading message with the deals
+        await loading_message.edit_text(
+            deals_message,
+            parse_mode="MARKDOWN",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Error getting deals of the week: {e}")
+        await loading_message.edit_text(
+            "*Deals of the Week*\n\n"
+            "We're currently updating our deals database. Please check back in a few minutes.\n\n"
+            "In the meantime, you can use /mycars to manage your car preferences or /help to see all available commands.",
+            parse_mode="MARKDOWN"
+        )
+
+@subscription_middleware.premium_required
+async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /car_details command to show detailed information about a specific deal."""
+    user_id = update.effective_user.id
+    
+    # Check if user provided an index
+    if not context.args:
         await update.message.reply_text(
-            "*Deals of the Week - Premium Feature*\n\n"
-            "This premium feature provides a curated list of the absolute best deals across all categories.\n\n"
-            "Premium subscription required to access this feature.\n\n"
-            "Use /subscribe to learn about our subscription options.",
+            "Please provide the number of the car you want details for.\n"
+            "Example: /car_details 1",
             parse_mode="MARKDOWN"
         )
         return
     
-    # If user is premium, show them the deals
-    await update.message.reply_text(
-        "*Deals of the Week*\n\n"
-        "Here are this week's top car deals, curated especially for our premium subscribers:\n\n"
-        "1. *2019 BMW 3 Series* - €21,500 (15% below market) - A+ Deal\n"
-        "2. *2020 Audi A4* - €24,750 (12% below market) - A Deal\n"
-        "3. *2018 Mercedes C-Class* - €19,900 (10% below market) - B+ Deal\n\n"
-        "For full details and more premium deals, check back weekly for updates!",
-        parse_mode="MARKDOWN"
-    )
+    try:
+        # Parse the index
+        index = int(context.args[0]) - 1  # Convert to 0-based index
+        
+        # Get the deals for this user
+        if 'deals_of_week' not in context.bot_data or user_id not in context.bot_data['deals_of_week']:
+            await update.message.reply_text(
+                "Please use /dealsofweek first to see the current deals.",
+                parse_mode="MARKDOWN"
+            )
+            return
+        
+        deals = context.bot_data['deals_of_week'][user_id]
+        
+        # Check if index is valid
+        if index < 0 or index >= len(deals):
+            await update.message.reply_text(
+                f"Invalid car number. Please provide a number between 1 and {len(deals)}.",
+                parse_mode="MARKDOWN"
+            )
+            return
+        
+        # Get the deal
+        deal = deals[index]
+        
+        # Get the deals manager to format the message
+        from dealsofweek import get_deals_of_week_manager
+        deals_manager = get_deals_of_week_manager()
+        
+        # Format the deal details
+        details_message = deals_manager.format_deal_details(deal)
+        
+        # Send the details
+        await update.message.reply_text(
+            details_message,
+            parse_mode="MARKDOWN",
+            disable_web_page_preview=True
+        )
+    except ValueError:
+        await update.message.reply_text(
+            "Please provide a valid number.\n"
+            "Example: /car_details 1",
+            parse_mode="MARKDOWN"
+        )
+    except Exception as e:
+        logger.error(f"Error getting car details: {e}")
+        await update.message.reply_text(
+            "Sorry, there was an error retrieving the car details. Please try again later.",
+            parse_mode="MARKDOWN"
+        )
 
 async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the scrapers to run (admin only)."""
@@ -601,6 +726,7 @@ def main():
     application.add_handler(CommandHandler("subscribepremium", subscribe_premium_command))
     application.add_handler(CommandHandler("managesubscription", managesubscription_command))
     application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
+    application.add_handler(CommandHandler("car_details", car_details_command))
     # Register admin commands
     application.add_handler(CommandHandler("runscraper", run_scrapers_command))
     application.add_handler(CommandHandler("sendalerts", send_alerts_command))
