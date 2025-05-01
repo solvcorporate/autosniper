@@ -2,8 +2,11 @@ import os
 import logging
 import asyncio
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    Application, CommandHandler, ContextTypes, MessageHandler, 
+    filters, CallbackQueryHandler, ConversationHandler
+)
 
 from sheets import get_sheets_manager
 from conversations import get_car_preferences_conversation
@@ -35,50 +38,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcoming and engaging introduction when the command /start is issued."""
     user = update.effective_user
     
-    # Check if this is a deep link with a specific parameter
-    deep_link = context.args[0] if context.args else None
-    
-    if deep_link == "payment_success":
-        # Handle successful payment
-        subscription_manager = get_subscription_manager()
-        current_tier = subscription_manager.get_user_tier(user.id)
-        
-        await update.message.reply_text(
-            f"🎉 *Payment Successful!* 🎉\n\n"
-            f"Your {current_tier} subscription has been activated. Thank you for supporting AutoSniper!\n\n"
-            f"Use /managesubscription to view your subscription details.",
-            parse_mode="MARKDOWN"
-        )
-        return
-    
-    elif deep_link == "payment_cancel":
-        # Handle cancelled payment
-        await update.message.reply_text(
-            "Your payment was cancelled.\n\n"
-            "If you encountered any issues or have questions, feel free to try again or contact support.\n\n"
-            "Use /subscribe to view subscription options.",
-            parse_mode="MARKDOWN"
-        )
-        return
-    
-    welcome_message = (
-        f"👋 *Welcome to AutoSniper, {user.first_name}!*\n\n"
-        f"🚗 I'm your personal car deal hunter that never sleeps.\n\n"
-        f"I continuously scan across the top auto marketplaces to find vehicles priced significantly below market value, "
-        f"giving you a competitive edge to spot exceptional deals before anyone else.\n\n"
-        f"*How it works:*\n"
-        f"1️⃣ Tell me what cars you're interested in\n"
-        f"2️⃣ I'll scan multiple auto listings 24/7\n"
-        f"3️⃣ Get instant alerts when great deals appear\n"
-        f"4️⃣ Be the first to contact sellers and secure the best prices\n\n"
-        f"Try these commands:\n"
-        f"• /help - See all available commands\n"
-        f"• /demo - View sample car alerts\n\n"
-        f"Ready to start finding amazing car deals? Use /mycars to set up your preferences!"
-    )
-    
-    await update.message.reply_text(welcome_message, parse_mode="MARKDOWN")
-    
     # Store user information in Google Sheets
     if sheets_manager:
         user_added = sheets_manager.add_user(
@@ -93,6 +52,101 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.error(f"Failed to save user to Google Sheets: {user.id}")
     else:
         logger.warning("Google Sheets integration not available. User not saved.")
+    
+    # Check if this is a deep link with a specific parameter
+    deep_link = context.args[0] if context.args else None
+    
+    # Handle deep link parameters
+    if deep_link == "payment_success":
+        # Handle successful payment
+        subscription_manager = get_subscription_manager()
+        current_tier = subscription_manager.get_user_tier(user.id)
+        
+        await update.message.reply_text(
+            f"🎉 *Payment Successful!* 🎉\n\n"
+            f"Your {current_tier} subscription has been activated. Thank you for supporting AutoSniper!\n\n"
+            f"Use /managesubscription to view your subscription details.",
+            parse_mode="MARKDOWN"
+        )
+        # Continue with onboarding after payment
+        context.user_data['onboarding_step'] = 'post_payment'
+        
+    elif deep_link == "payment_cancel":
+        # Handle cancelled payment
+        await update.message.reply_text(
+            "Your payment was cancelled.\n\n"
+            "If you encountered any issues or have questions, feel free to try again or contact support.\n\n"
+            "Use /subscribe to view subscription options.",
+            parse_mode="MARKDOWN"
+        )
+        return
+    
+    # Check if this is a returning user
+    if sheets_manager and sheets_manager.user_exists(user.id):
+        # Get basic user stats
+        car_preferences = sheets_manager.get_car_preferences(user.id) if sheets_manager else []
+        preference_count = len(car_preferences)
+        
+        # Create keyboard for returning users
+        keyboard = [
+            [InlineKeyboardButton("🚗 My Car Preferences", callback_data="my_cars")],
+            [InlineKeyboardButton("🔍 See Sample Alerts", callback_data="sample_alerts")]
+        ]
+        
+        # Add subscription button based on current status
+        subscription_manager = get_subscription_manager()
+        current_tier = subscription_manager.get_user_tier(user.id)
+        
+        if current_tier in ['Basic', 'Premium']:
+            keyboard.append([InlineKeyboardButton("💳 Manage Subscription", callback_data="manage_subscription")])
+        else:
+            keyboard.append([InlineKeyboardButton("✨ Upgrade to Premium", callback_data="view_subscription")])
+        
+        # Add help button
+        keyboard.append([InlineKeyboardButton("❓ Help & FAQ", callback_data="view_help")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_back_message = (
+            f"👋 *Welcome back to AutoSniper, {user.first_name}!*\n\n"
+            f"You currently have {preference_count} active car preference{'s' if preference_count != 1 else ''}.\n\n"
+            f"What would you like to do today?"
+        )
+        
+        await update.message.reply_text(
+            welcome_back_message,
+            parse_mode="MARKDOWN",
+            reply_markup=reply_markup
+        )
+    
+    else:
+        # New user - start the onboarding sequence
+        context.user_data['onboarding_step'] = 'welcome'
+        
+        # Create keyboard for new users
+        keyboard = [
+            [InlineKeyboardButton("🚗 How It Works", callback_data="onboard_how_it_works")],
+            [InlineKeyboardButton("👀 See Sample Alerts", callback_data="onboard_sample_alerts")],
+            [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_message = (
+            f"👋 *Welcome to AutoSniper, {user.first_name}!*\n\n"
+            f"*I scan car websites 24/7 to find you exceptional deals before anyone else.*\n\n"
+            f"I'll alert you when cars matching your criteria are listed at prices *significantly below market value*.\n\n"
+            f"Car enthusiasts and resellers use AutoSniper to:\n"
+            f"• Find incredible bargains worth £1000s\n"
+            f"• Be first to contact sellers for the best deals\n"
+            f"• Save hours of manual searching daily\n\n"
+            f"Ready to find your perfect car deal? Choose an option below to get started!"
+        )
+        
+        await update.message.reply_text(
+            welcome_message,
+            parse_mode="MARKDOWN",
+            reply_markup=reply_markup
+        )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
@@ -233,7 +287,14 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Use the /mycars command to set up your preferences!"
     )
     
-    await update.message.reply_text(cta_message, parse_mode="MARKDOWN")
+    # Create keyboard for next steps
+    keyboard = [
+        [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")],
+        [InlineKeyboardButton("💰 View Subscription Options", callback_data="view_subscription")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(cta_message, parse_mode="MARKDOWN", reply_markup=reply_markup)
 
 async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display frequently asked questions and their answers."""
@@ -261,6 +322,15 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         
         "*Q: What happens if I find a great deal through AutoSniper?*\n"
         "A: We provide a direct link to the original listing and even suggest an initial message to send the seller. From there, you'll interact directly with the seller as you normally would.\n\n"
+        
+        "*Q: I need help setting up my preferences. What should I do?*\n"
+        "A: Use the /mycars command to start the guided setup process. If you run into any issues, you can type 'cancel' at any point and start over.\n\n"
+        
+        "*Q: How many car preferences can I have active at once?*\n"
+        "A: Free users can have 1 active preference, Basic subscribers can have up to 3, and Premium subscribers get unlimited preferences.\n\n"
+        
+        "*Q: What if I need to cancel my subscription?*\n"
+        "A: You can manage your subscription at any time using the /managesubscription command. Cancellation takes effect at the end of your current billing period.\n\n"
         
         "Have another question? Contact us at solvcorporate@gmail.com"
     )
@@ -299,7 +369,15 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "/subscribe_basic - Subscribe to the Basic Plan\n"
         "/subscribe_premium - Subscribe to the Premium Plan"
     )
-    await update.message.reply_text(subscribe_text, parse_mode="MARKDOWN")
+    
+    # Create keyboard for subscription options
+    keyboard = [
+        [InlineKeyboardButton("Subscribe to Basic", callback_data="subscribe_basic")],
+        [InlineKeyboardButton("Subscribe to Premium", callback_data="subscribe_premium")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(subscribe_text, parse_mode="MARKDOWN", reply_markup=reply_markup)
 
 async def subscribe_basic_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /subscribe_basic command to subscribe to the Basic plan."""
@@ -395,12 +473,24 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
     
     # Add management options
     if tier == 'Basic':
-        message += "Want more features? Use /subscribe_premium to upgrade to Premium!"
-    
-    await update.message.reply_text(
-        message,
-        parse_mode="MARKDOWN"
-    )
+        # Create keyboard for upgrading
+        keyboard = [
+            [InlineKeyboardButton("Upgrade to Premium", callback_data="subscribe_premium")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        message += "Want more features? Upgrade to Premium for unlimited alerts and exclusive features!"
+        
+        await update.message.reply_text(
+            message,
+            parse_mode="MARKDOWN",
+            reply_markup=reply_markup
+        )
+    else:
+        await update.message.reply_text(
+            message,
+            parse_mode="MARKDOWN"
+        )
 
 @subscription_middleware.premium_required
 async def dealsofweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -540,7 +630,6 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
         run_scraper_job_background(update, context, status_message, scraper_manager)
     )
 
-# Add this new function for the alert system
 async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the alert system to send notifications (admin only)."""
     user = update.effective_user
@@ -568,7 +657,6 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         process_alerts_background(update, context, status_message, scraper_manager)
     )
 
-# Add this function to process alerts in the background
 async def process_alerts_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                    status_message: "Message", scraper_manager) -> None:
     """Process alert notifications in the background and update the status message."""
@@ -582,176 +670,452 @@ async def process_alerts_background(update: Update, context: ContextTypes.DEFAUL
             return
         
         # Get all recent listings from sheets (implementation depends on your sheets structure)
-        # This is a placeholder - you'll need to implement this in your sheets_manager
-        listings = []
-        if scraper_manager.sheets_manager:
-            # Assuming a get_recent_listings method exists
-            try:
-                listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
-            except Exception as e:
-                logger.error(f"Error getting listings from sheets: {e}")
-        
-        if not listings:
-            # Run scrapers to get listings if none in sheets
-            listings = scraper_manager.run_scrapers(preferences)
-        
-        if not listings:
-            await status_message.edit_text(
-                "❌ No listings found. Cannot process alerts."
-            )
-            return
-        
-        # Match listings to preferences
-        matches = scraper_manager.match_listings_to_preferences(listings, preferences)
-        
-        if not matches:
-            await status_message.edit_text(
-                "ℹ️ No matches found between listings and user preferences."
-            )
-            return
-        
-        # Initialize the alert engine
-        alert_engine = AlertEngine(context.bot)
-        
-        # Process matches and send alerts
-        alert_stats = await alert_engine.process_matches(
-            matches, 
-            sheets_manager=scraper_manager.sheets_manager
-        )
-        
-        # Update the status message with the results
-        await status_message.edit_text(
-            "✅ Alert processing completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• {alert_stats['total_users']} users had matching listings\n"
-            f"• {alert_stats['total_matches']} total matches were found\n" 
-            f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
-            f"• {alert_stats['users_notified']} users received notifications\n"
-            f"• {alert_stats['failures']} failures occurred\n\n"
-            f"The system will automatically process alerts on the next scraper run."
-        )
-    except Exception as e:
-        logger.error(f"Error processing alerts: {e}")
-        await status_message.edit_text(
-            "❌ Error processing alerts.\n\n"
-            f"Error details: {str(e)}\n\n"
-            "Please check the logs for more information."
-        )
+       # This is a placeholder - you'll need to implement this in your sheets_manager
+       listings = []
+       if scraper_manager.sheets_manager:
+           # Assuming a get_recent_listings method exists
+           try:
+               listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
+           except Exception as e:
+               logger.error(f"Error getting listings from sheets: {e}")
+       
+       if not listings:
+           # Run scrapers to get listings if none in sheets
+           listings = scraper_manager.run_scrapers(preferences)
+       
+       if not listings:
+           await status_message.edit_text(
+               "❌ No listings found. Cannot process alerts."
+           )
+           return
+       
+       # Match listings to preferences
+       matches = scraper_manager.match_listings_to_preferences(listings, preferences)
+       
+       if not matches:
+           await status_message.edit_text(
+               "ℹ️ No matches found between listings and user preferences."
+           )
+           return
+       
+       # Initialize the alert engine
+       alert_engine = AlertEngine(context.bot)
+       
+       # Process matches and send alerts
+       alert_stats = await alert_engine.process_matches(
+           matches, 
+           sheets_manager=scraper_manager.sheets_manager
+       )
+       
+       # Update the status message with the results
+       await status_message.edit_text(
+           "✅ Alert processing completed!\n\n"
+           f"📊 Statistics:\n"
+           f"• {alert_stats['total_users']} users had matching listings\n"
+           f"• {alert_stats['total_matches']} total matches were found\n" 
+           f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
+           f"• {alert_stats['users_notified']} users received notifications\n"
+           f"• {alert_stats['failures']} failures occurred\n\n"
+           f"The system will automatically process alerts on the next scraper run."
+       )
+   except Exception as e:
+       logger.error(f"Error processing alerts: {e}")
+       await status_message.edit_text(
+           "❌ Error processing alerts.\n\n"
+           f"Error details: {str(e)}\n\n"
+           "Please check the logs for more information."
+       )
 
-# Update this function to include alert processing
 async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
-                                   status_message: "Message", scraper_manager) -> None:
-    """Run the scraper job in the background and update the status message."""
-    try:
-        # Run the scraper job
-        stats = scraper_manager.run_scraper_job()
-        
-        # Process alerts if matches were found
-        matches_found = False
-        alert_stats = {
-            "total_users": 0,
-            "total_matches": 0,
-            "alerts_sent": 0,
-            "users_notified": 0,
-            "failures": 0
-        }
-        
-        # Check if there are matches to process
-        if stats.get("matches", 0) > 0:
-            # Initialize the alert engine
-            alert_engine = AlertEngine(context.bot)
-            
-            # Get matches from the most recent scraper run (implementation depends on your structure)
-            matches = {}  # This should be populated with actual matches
-            
-            if matches:
-                # Process matches and send alerts
-                alert_stats = await alert_engine.process_matches(
-                    matches, 
-                    sheets_manager=scraper_manager.sheets_manager
-                )
-                matches_found = True
-        
-        # Update the status message with the results
-        result_message = (
-            "✅ Scraper job completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• Processed {stats['preferences']} preferences\n"
-            f"• Found {stats['listings']} listings\n"
-            f"• Saved {stats['saved']} new listings\n"
-        )
-        
-        if 'matches' in stats:
-            result_message += f"• Matched {stats['matches']} listings to users\n"
-        
-        if 'grades' in stats:
-            grade_counts = stats['grades']
-            grades_text = ", ".join([f"{grade}: {count}" for grade, count in grade_counts.items() if count > 0])
-            result_message += f"• Grades: {grades_text}\n"
-        
-        result_message += f"• Took {stats['duration_seconds']:.1f} seconds\n"
-        
-        if matches_found:
-            result_message += "\n📨 Alert Processing:\n"
-            result_message += f"• {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users\n"
-            
-            if alert_stats['failures'] > 0:
-                result_message += f"• {alert_stats['failures']} failures occurred\n"
-        
-        await status_message.edit_text(result_message)
-    except Exception as e:
-        logger.error(f"Error running scraper job: {e}")
-        await status_message.edit_text(
-            "❌ Error running scraper job.\n\n"
-            f"Error details: {str(e)}\n\n"
-            "Please check the logs for more information."
-        )
+                                  status_message: "Message", scraper_manager) -> None:
+   """Run the scraper job in the background and update the status message."""
+   try:
+       # Run the scraper job
+       stats = scraper_manager.run_scraper_job()
+       
+       # Process alerts if matches were found
+       matches_found = False
+       alert_stats = {
+           "total_users": 0,
+           "total_matches": 0,
+           "alerts_sent": 0,
+           "users_notified": 0,
+           "failures": 0
+       }
+       
+       # Check if there are matches to process
+       if stats.get("matches", 0) > 0:
+           # Initialize the alert engine
+           alert_engine = AlertEngine(context.bot)
+           
+           # Get matches from the most recent scraper run (implementation depends on your structure)
+           matches = {}  # This should be populated with actual matches
+           
+           if matches:
+               # Process matches and send alerts
+               alert_stats = await alert_engine.process_matches(
+                   matches, 
+                   sheets_manager=scraper_manager.sheets_manager
+               )
+               matches_found = True
+       
+       # Update the status message with the results
+       result_message = (
+           "✅ Scraper job completed!\n\n"
+           f"📊 Statistics:\n"
+           f"• Processed {stats['preferences']} preferences\n"
+           f"• Found {stats['listings']} listings\n"
+           f"• Saved {stats['saved']} new listings\n"
+       )
+       
+       if 'matches' in stats:
+           result_message += f"• Matched {stats['matches']} listings to users\n"
+       
+       if 'grades' in stats:
+           grade_counts = stats['grades']
+           grades_text = ", ".join([f"{grade}: {count}" for grade, count in grade_counts.items() if count > 0])
+           result_message += f"• Grades: {grades_text}\n"
+       
+       result_message += f"• Took {stats['duration_seconds']:.1f} seconds\n"
+       
+       if matches_found:
+           result_message += "\n📨 Alert Processing:\n"
+           result_message += f"• {alert_stats['alerts_sent']} alerts sent to {alert_stats['users_notified']} users\n"
+           
+           if alert_stats['failures'] > 0:
+               result_message += f"• {alert_stats['failures']} failures occurred\n"
+       
+       await status_message.edit_text(result_message)
+   except Exception as e:
+       logger.error(f"Error running scraper job: {e}")
+       await status_message.edit_text(
+           "❌ Error running scraper job.\n\n"
+           f"Error details: {str(e)}\n\n"
+           "Please check the logs for more information."
+       )
+
+async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Handle button clicks from the start message."""
+   query = update.callback_query
+   await query.answer()
+   
+   # Extract the callback data
+   callback_data = query.data
+   
+   if callback_data == "my_cars":
+       # Redirect to the /mycars command
+       await query.message.delete()
+       new_update = Update(update_id=update.update_id, message=query.message)
+       await mycars(new_update, context)
+   
+   elif callback_data == "sample_alerts":
+       # Show sample alerts
+       await query.edit_message_text(
+           text="*Loading sample alerts...*",
+           parse_mode="MARKDOWN"
+       )
+       # Create a new update with the message from the callback query
+       new_update = Update(update_id=update.update_id, message=query.message)
+       await demo_command(new_update, context)
+   
+   elif callback_data == "manage_subscription":
+       # Redirect to subscription management
+       await query.edit_message_text(
+           text="*Loading your subscription details...*",
+           parse_mode="MARKDOWN"
+       )
+       new_update = Update(update_id=update.update_id, message=query.message)
+       await managesubscription_command(new_update, context)
+   
+   elif callback_data == "view_subscription" or callback_data == "subscribe_basic" or callback_data == "subscribe_premium":
+       # Show subscription options or process subscription
+       if callback_data == "subscribe_basic":
+           tier = "Basic"
+           await process_subscription(update, context, tier)
+       elif callback_data == "subscribe_premium":
+           tier = "Premium"
+           await process_subscription(update, context, tier)
+       else:
+           # Just show the options
+           await query.edit_message_text(
+               text="*Loading subscription options...*",
+               parse_mode="MARKDOWN"
+           )
+           new_update = Update(update_id=update.update_id, message=query.message)
+           await subscribe_command(new_update, context)
+   
+   elif callback_data == "view_help":
+       # Show help and FAQ
+       await query.edit_message_text(
+           text="*Loading help & FAQ...*",
+           parse_mode="MARKDOWN"
+       )
+       new_update = Update(update_id=update.update_id, message=query.message)
+       await help_command(new_update, context)
+   
+   # Handle onboarding flow buttons
+   elif callback_data == "onboard_how_it_works":
+       await onboard_how_it_works(update, context)
+   
+   elif callback_data == "onboard_sample_alerts":
+       await onboard_sample_alerts(update, context)
+   
+   elif callback_data == "onboard_setup_car":
+       await onboard_setup_car(update, context)
+   
+   elif callback_data == "start_car_setup":
+       await start_car_setup_from_callback(update, context)
+
+async def onboard_how_it_works(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Show new users how AutoSniper works."""
+   query = update.callback_query
+   
+   # Update user's onboarding step
+   context.user_data['onboarding_step'] = 'how_it_works'
+   
+   # Create keyboard for next steps
+   keyboard = [
+       [InlineKeyboardButton("👀 See Sample Alerts", callback_data="onboard_sample_alerts")],
+       [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")]
+   ]
+   reply_markup = InlineKeyboardMarkup(keyboard)
+   
+   how_it_works = (
+       "*How AutoSniper Works*\n\n"
+       "1️⃣ *You tell me what cars you're looking for*\n"
+       "Set your preferences: make, model, price range, location, etc.\n\n"
+       "2️⃣ *I scan multiple websites 24/7*\n"
+       "AutoTrader, Gumtree, Facebook Marketplace, and more\n\n"
+       "3️⃣ *My algorithm identifies exceptional deals*\n"
+       "Cars priced significantly below market value get priority\n\n"
+       "4️⃣ *You receive instant Telegram alerts*\n"
+       "With direct links to listings and suggested messages to sellers\n\n"
+       "5️⃣ *You contact sellers before anyone else*\n"
+       "Being first gives you the best chance to secure great deals\n\n"
+       "Ready for the next step?"
+   )
+   
+   await query.edit_message_text(
+       text=how_it_works,
+       parse_mode="MARKDOWN",
+       reply_markup=reply_markup
+   )
+
+async def onboard_sample_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Show new users sample alerts."""
+   query = update.callback_query
+   
+   # Update user's onboarding step
+   context.user_data['onboarding_step'] = 'sample_alerts'
+   
+   # First update the message to indicate loading
+   await query.edit_message_text(
+       text="*Loading sample alerts...*",
+       parse_mode="MARKDOWN"
+   )
+   
+   # Create keyboard for next steps
+   keyboard = [
+       [InlineKeyboardButton("🚗 Set Up My First Car", callback_data="onboard_setup_car")],
+       [InlineKeyboardButton("💰 View Premium Features", callback_data="view_subscription")]
+   ]
+   reply_markup = InlineKeyboardMarkup(keyboard)
+   
+   # Sample alert message
+   sample_alert = (
+       "*Here's an example of the alerts you'll receive:*\n\n"
+       "🚨 *A+ DEAL ALERT!* 🚨\n\n"
+       "🚗 *2018 BMW 3 Series 320d M Sport*\n"
+       "💰 *Price: £14,500* (Market avg: £19,200)\n"
+       "🔄 72,000 miles | ⛽ Diesel | 📍 Manchester\n"
+       "🛡️ Full service history | ✅ Valid road tax & NCT\n"
+       "📊 *Score: A+* (24% below market)\n\n"
+       "➡️ [View Listing](https://example.com/listing)\n\n"
+       "Ready to set up your first car preference?"
+   )
+   
+   await query.message.reply_text(
+       text=sample_alert,
+       parse_mode="MARKDOWN",
+       disable_web_page_preview=True,
+       reply_markup=reply_markup
+   )
+
+async def onboard_setup_car(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Guide the user to set up their first car preference."""
+   query = update.callback_query
+   
+   # Update user's onboarding step
+   context.user_data['onboarding_step'] = 'setup_car'
+   
+   # First update the message to indicate loading
+   await query.edit_message_text(
+       text="*Setting up your first car preference...*",
+       parse_mode="MARKDOWN"
+   )
+   
+   setup_guide = (
+       "*Let's set up your first car search*\n\n"
+       "I'll help you create your first car preference to start finding deals.\n\n"
+       "In the next steps, you'll tell me:\n"
+       "• What make and model you're looking for\n"
+       "• Your price range\n"
+       "• Year range\n"
+       "• Location preference\n"
+       "• Optional details like fuel type\n\n"
+       "Just tap the button below to begin!"
+   )
+   
+   # Create keyboard for starting car setup
+   keyboard = [
+       [InlineKeyboardButton("🏁 Start Car Setup", callback_data="start_car_setup")]
+   ]
+   reply_markup = InlineKeyboardMarkup(keyboard)
+   
+   await query.message.reply_text(
+       text=setup_guide,
+       parse_mode="MARKDOWN",
+       reply_markup=reply_markup
+   )
+
+async def start_car_setup_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Start the car setup process from a callback query."""
+   query = update.callback_query
+   await query.answer()
+   
+   if query.data == "start_car_setup":
+       # Create a new Update object pointing to the original message
+       # This allows us to call the existing mycars function
+       new_update = Update(
+           update_id=update.update_id,
+           message=query.message
+       )
+       
+       # Delete the button message
+       await context.bot.delete_message(
+           chat_id=query.message.chat_id,
+           message_id=query.message.message_id
+       )
+       
+       # Call the existing mycars command handler - reusing the /mycars command
+       await mycars(new_update, context)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Handle errors in a user-friendly way."""
+   # Log the error
+   logger.error(f"Error: {context.error} - Update: {update}")
+   
+   # Check if we have an update object (might be None in some errors)
+   if update is None:
+       return
+   
+   # Get the chat ID if possible
+   chat_id = None
+   if update.effective_chat:
+       chat_id = update.effective_chat.id
+   elif update.callback_query:
+       chat_id = update.callback_query.message.chat_id
+   
+   if not chat_id:
+       return  # Can't send a message without chat_id
+   
+   # Create a user-friendly error message
+   error_message = (
+       "😔 *Something went wrong*\n\n"
+       "I encountered an unexpected issue. Don't worry, I've already notified our team about it.\n\n"
+       "In the meantime, you can:\n"
+       "• Try again in a few moments\n"
+       "• Start over with the /start command\n"
+       "• Contact support at solvcorporate@gmail.com\n\n"
+       "Thank you for your patience!"
+   )
+   
+   # Try to send the error message
+   try:
+       # If the error occurred in a callback query, edit the message if possible
+       if update.callback_query:
+           await context.bot.edit_message_text(
+               chat_id=chat_id,
+               message_id=update.callback_query.message.message_id,
+               text=error_message,
+               parse_mode="MARKDOWN"
+           )
+       else:
+           # Otherwise, send a new message
+           await context.bot.send_message(
+               chat_id=chat_id,
+               text=error_message,
+               parse_mode="MARKDOWN"
+           )
+   except Exception as e:
+       logger.error(f"Error sending error message: {e}")
+
+async def mycars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+   """Forward to the car preferences conversation handler."""
+   # This is just a forwarding function to the conversation handler
+   # The actual implementation is in the conversation handler in conversations.py
+   await update.message.reply_text(
+       "*Setting up your car preferences...*\n\n"
+       "Let's find the perfect car deals for you. I'll ask you a series of questions about what you're looking for.",
+       parse_mode="MARKDOWN"
+   )
+   
+   # The conversation handler will take over from here
 
 def main():
-    """Start the bot without using asyncio.run() which can cause issues in some environments"""
-    # Create the Application and pass it your bot's token
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+   """Start the bot without using asyncio.run() which can cause issues in some environments"""
+   # Create the Application and pass it your bot's token
+   application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Store sheets_manager in bot_data for access in conversation handlers
-    if sheets_manager:
-        application.bot_data['sheets_manager'] = sheets_manager
-    
-    # Register command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("demo", demo_command))
-    application.add_handler(CommandHandler("faq", faq_command))
-    application.add_handler(CommandHandler("subscribe", subscribe_command))
-    application.add_handler(CommandHandler("subscribebasic", subscribe_basic_command))
-    application.add_handler(CommandHandler("subscribepremium", subscribe_premium_command))
-    application.add_handler(CommandHandler("managesubscription", managesubscription_command))
-    application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
-    application.add_handler(CommandHandler("car_details", car_details_command))
-    # Register admin commands
-    application.add_handler(CommandHandler("runscraper", run_scrapers_command))
-    application.add_handler(CommandHandler("sendalerts", send_alerts_command))
-    
-    # Register conversation handler for car preferences
-    if sheets_manager:
-        car_conversation = get_car_preferences_conversation(sheets_manager)
-        application.add_handler(car_conversation)
-    else:
-        logger.error("Google Sheets integration not available. Car preferences conversation disabled.")
-        
-        # Add a basic handler for /mycars when sheets is not available
-        async def mycars_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            await update.message.reply_text(
-                "Sorry, the car preferences feature is not available right now. Please try again later."
-            )
-        application.add_handler(CommandHandler("mycars", mycars_fallback))
+   # Store sheets_manager in bot_data for access in conversation handlers
+   if sheets_manager:
+       application.bot_data['sheets_manager'] = sheets_manager
+   
+   # Register command handlers
+   application.add_handler(CommandHandler("start", start))
+   application.add_handler(CommandHandler("help", help_command))
+   application.add_handler(CommandHandler("demo", demo_command))
+   application.add_handler(CommandHandler("faq", faq_command))
+   application.add_handler(CommandHandler("subscribe", subscribe_command))
+   application.add_handler(CommandHandler("subscribebasic", subscribe_basic_command))
+   application.add_handler(CommandHandler("subscribepremium", subscribe_premium_command))
+   application.add_handler(CommandHandler("subscribe_basic", subscribe_basic_command))
+   application.add_handler(CommandHandler("subscribe_premium", subscribe_premium_command))
+   application.add_handler(CommandHandler("managesubscription", managesubscription_command))
+   application.add_handler(CommandHandler("dealsofweek", dealsofweek_command))
+   application.add_handler(CommandHandler("car_details", car_details_command))
+   
+   # Register admin commands
+   application.add_handler(CommandHandler("runscraper", run_scrapers_command))
+   application.add_handler(CommandHandler("sendalerts", send_alerts_command))
+   
+   # Register callback query handler for interactive buttons
+   application.add_handler(CallbackQueryHandler(handle_start_buttons))
+   
+   # Register error handler
+   application.add_error_handler(error_handler)
+   
+   # Register conversation handler for car preferences
+   if sheets_manager:
+       car_conversation = get_car_preferences_conversation(sheets_manager)
+       application.add_handler(car_conversation)
+   else:
+       logger.error("Google Sheets integration not available. Car preferences conversation disabled.")
+       
+       # Add a basic handler for /mycars when sheets is not available
+       async def mycars_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+           await update.message.reply_text(
+               "Sorry, the car preferences feature is not available right now. Please try again later."
+           )
+       application.add_handler(CommandHandler("mycars", mycars_fallback))
 
-    # Start the scheduler
-    scheduler = get_scheduler()
-    scheduler.start()
-    logger.info("Scheduler started")
-    
-    # Start the Bot - using a different approach that works better in cloud environments
-    application.run_polling()
+   # Start the scheduler
+   scheduler = get_scheduler()
+   scheduler.start()
+   logger.info("Scheduler started")
+   
+   # Start the Bot - using a different approach that works better in cloud environments
+   application.run_polling()
 
 if __name__ == '__main__':
-    main()
+   main()
