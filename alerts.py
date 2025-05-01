@@ -166,7 +166,7 @@ class AlertEngine:
             self.logger.error(f"Error sending alert to user {user_id}: {e}")
             return False
     
-    def _generate_alert_message(self, match: Dict[str, Any]) -> str:
+   def _generate_alert_message(self, match: Dict[str, Any]) -> str:
         """Generate an alert message for a matching car listing.
         
         Args:
@@ -185,11 +185,17 @@ class AlertEngine:
         fuel_type = match.get('fuel_type', '')
         transmission = match.get('transmission', '')
         url = match.get('url', '')
+        source = match.get('source', '')
+        title = match.get('title', '')
         
         # Extract score information if available
         score = match.get('score', None)
         grade = match.get('grade', '')
         score_details = match.get('score_details', {})
+        
+        # Extract user information to check if premium
+        user_id = match.get('user_id', '')
+        is_premium = self._is_premium_user(user_id)
         
         # Format the price with thousands separator
         price_formatted = f"£{price:,}" if price else "Unknown"
@@ -206,17 +212,27 @@ class AlertEngine:
         elif grade == 'B':
             alert_emphasis = "B GOOD DEAL ALERT!"
         
+        # Add premium badge for premium users
+        if is_premium:
+            premium_badge = "🔸 *PREMIUM ALERT* 🔸\n"
+        else:
+            premium_badge = ""
+        
         # Build the message with grade-specific formatting
         message_parts = []
         
         # Alert header
         if grade in ['A+', 'A']:
-            message_parts.append(f"🚨 *{alert_emphasis}* 🚨\n")
+            message_parts.append(f"{premium_badge}🚨 *{alert_emphasis}* 🚨\n")
         else:
-            message_parts.append(f"🚘 *{alert_emphasis}* 🚘\n")
+            message_parts.append(f"{premium_badge}🚘 *{alert_emphasis}* 🚘\n")
         
         # Car details section
         message_parts.append(f"🚗 *{year} {make} {model}*\n")
+        
+        # Add title if available and user is premium
+        if is_premium and title:
+            message_parts.append(f"📋 {title}\n")
         
         # Price section with market comparison if available
         price_section = f"💰 *Price: {price_formatted}*"
@@ -234,6 +250,8 @@ class AlertEngine:
         if transmission:
             specs.append(f"🎮 {transmission}")
         specs.append(f"📍 {location}")
+        if is_premium and source:
+            specs.append(f"🔍 {source}")
         message_parts.append(" | ".join(specs) + "\n")
         
         # Score and grade if available
@@ -247,17 +265,84 @@ class AlertEngine:
                 message_parts.append(")")
             message_parts.append("\n")
         
+        # Premium-only detailed assessment
+        if is_premium:
+            assessment = self._generate_premium_assessment(match)
+            if assessment:
+                message_parts.append(f"{assessment}\n")
+        
         # Suggested message to seller
         if make and model:
-            message_parts.append(f"💬 Suggested message: \"Hi, is your {year} {make} {model} still available? I can view it soon if it is.\"\n")
+            message_parts.append(f"💬 *Suggested message:* \"Hi, is your {year} {make} {model} still available? I can view it soon if it is.\"\n")
         
         # Link to the listing
         if url:
             message_parts.append(f"\n➡️ [View Listing]({url})")
+            
+        # Add premium footer
+        if is_premium:
+            message_parts.append("\n\n_Premium subscribers receive enhanced alerts with additional data points._")
         
         # Join all parts into a single message
         return "".join(message_parts)
     
+    def _is_premium_user(self, user_id: str) -> bool:
+        """Check if a user has premium subscription.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            bool: True if user is premium, False otherwise
+        """
+        try:
+            from subscription import get_subscription_manager
+            subscription_manager = get_subscription_manager()
+            return subscription_manager.is_user_premium(user_id)
+        except Exception as e:
+            self.logger.error(f"Error checking premium status: {e}")
+            return False
+    
+    def _generate_premium_assessment(self, match: Dict[str, Any]) -> str:
+        """Generate a detailed assessment for premium users.
+        
+        Args:
+            match: The matching car listing with score
+            
+        Returns:
+            Formatted assessment text
+        """
+        score_details = match.get('score_details', {})
+        if not score_details:
+            return ""
+        
+        # Extract assessment factors
+        price_score = score_details.get('price_score', 0)
+        mileage_score = score_details.get('mileage_score', 0)
+        
+        # Generate assessment
+        assessment_parts = ["*Premium Assessment:*\n"]
+        
+        if price_score > 85:
+            assessment_parts.append("✅ *Exceptional value* - Significantly below market price")
+        elif price_score > 75:
+            assessment_parts.append("✅ *Great value* - Well below typical market price")
+        elif price_score > 65:
+            assessment_parts.append("✅ *Good value* - Below average market price")
+        elif price_score < 40:
+            assessment_parts.append("❌ *Overpriced* - Above typical market value")
+        
+        if mileage_score > 85:
+            assessment_parts.append("✅ *Low mileage* - Well below average for this vehicle age")
+        elif mileage_score > 75:
+            assessment_parts.append("✅ *Good mileage* - Below average for vehicle age")
+        elif mileage_score < 40:
+            assessment_parts.append("⚠️ *High mileage* - Above average for vehicle age")
+        
+        if len(assessment_parts) <= 1:
+            return ""
+            
+        return "\n".join(assessment_parts)
     def _update_notification_status(self, match: Dict[str, Any], user_id: str, sheets_manager) -> bool:
         """Update the notification status in Google Sheets.
         
