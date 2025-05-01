@@ -666,7 +666,7 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Check if user is admin (for now, just a simple check - you might want to improve this)
     is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
    
-   if not is_admin:
+    if not is_admin:
        await update.message.reply_text(
            "Sorry, this command is for administrators only."
        )
