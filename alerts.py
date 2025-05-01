@@ -166,7 +166,7 @@ class AlertEngine:
             self.logger.error(f"Error sending alert to user {user_id}: {e}")
             return False
     
-   def _generate_alert_message(self, match: Dict[str, Any]) -> str:
+def _generate_alert_message(self, match: Dict[str, Any]) -> str:
         """Generate an alert message for a matching car listing.
         
         Args:
