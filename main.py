@@ -679,7 +679,7 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
    
    # Get the scraper manager
-   scraper_manager = get_scraper_manager()
+    scraper_manager = get_scraper_manager()
    
    # Run the scraper job in a way that doesn't block the bot
    context.application.create_task(
