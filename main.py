@@ -673,7 +673,7 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
        return
    
    # Send initial message
-        status_message = await update.message.reply_text(
+   status_message = await update.message.reply_text(
        "🔄 Starting to process alerts...\n\n"
        "This may take a few minutes. I'll update you when it's done."
    )
