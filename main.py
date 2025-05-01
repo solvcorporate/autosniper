@@ -670,61 +670,61 @@ async def process_alerts_background(update: Update, context: ContextTypes.DEFAUL
             return
         
         # Get all recent listings from sheets (implementation depends on your sheets structure)
-       # This is a placeholder - you'll need to implement this in your sheets_manager
-       listings = []
-       if scraper_manager.sheets_manager:
-           # Assuming a get_recent_listings method exists
-           try:
-               listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
-           except Exception as e:
-               logger.error(f"Error getting listings from sheets: {e}")
-       
-       if not listings:
-           # Run scrapers to get listings if none in sheets
-           listings = scraper_manager.run_scrapers(preferences)
-       
-       if not listings:
-           await status_message.edit_text(
-               "❌ No listings found. Cannot process alerts."
-           )
-           return
-       
-       # Match listings to preferences
-       matches = scraper_manager.match_listings_to_preferences(listings, preferences)
-       
-       if not matches:
-           await status_message.edit_text(
-               "ℹ️ No matches found between listings and user preferences."
-           )
-           return
-       
-       # Initialize the alert engine
-       alert_engine = AlertEngine(context.bot)
-       
-       # Process matches and send alerts
-       alert_stats = await alert_engine.process_matches(
-           matches, 
-           sheets_manager=scraper_manager.sheets_manager
-       )
-       
-       # Update the status message with the results
-       await status_message.edit_text(
-           "✅ Alert processing completed!\n\n"
-           f"📊 Statistics:\n"
-           f"• {alert_stats['total_users']} users had matching listings\n"
-           f"• {alert_stats['total_matches']} total matches were found\n" 
-           f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
-           f"• {alert_stats['users_notified']} users received notifications\n"
-           f"• {alert_stats['failures']} failures occurred\n\n"
-           f"The system will automatically process alerts on the next scraper run."
-       )
-   except Exception as e:
-       logger.error(f"Error processing alerts: {e}")
-       await status_message.edit_text(
-           "❌ Error processing alerts.\n\n"
-           f"Error details: {str(e)}\n\n"
-           "Please check the logs for more information."
-       )
+        # This is a placeholder - you'll need to implement this in your sheets_manager
+        listings = []
+        if scraper_manager.sheets_manager:
+            # Assuming a get_recent_listings method exists
+            try:
+                listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
+            except Exception as e:
+                logger.error(f"Error getting listings from sheets: {e}")
+        
+        if not listings:
+            # Run scrapers to get listings if none in sheets
+            listings = scraper_manager.run_scrapers(preferences)
+        
+        if not listings:
+            await status_message.edit_text(
+                "❌ No listings found. Cannot process alerts."
+            )
+            return
+        
+        # Match listings to preferences
+        matches = scraper_manager.match_listings_to_preferences(listings, preferences)
+        
+        if not matches:
+            await status_message.edit_text(
+                "ℹ️ No matches found between listings and user preferences."
+            )
+            return
+        
+        # Initialize the alert engine
+        alert_engine = AlertEngine(context.bot)
+        
+        # Process matches and send alerts
+        alert_stats = await alert_engine.process_matches(
+            matches, 
+            sheets_manager=scraper_manager.sheets_manager
+        )
+        
+        # Update the status message with the results
+        await status_message.edit_text(
+            "✅ Alert processing completed!\n\n"
+            f"📊 Statistics:\n"
+            f"• {alert_stats['total_users']} users had matching listings\n"
+            f"• {alert_stats['total_matches']} total matches were found\n" 
+            f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
+            f"• {alert_stats['users_notified']} users received notifications\n"
+            f"• {alert_stats['failures']} failures occurred\n\n"
+            f"The system will automatically process alerts on the next scraper run."
+        )
+    except Exception as e:
+        logger.error(f"Error processing alerts: {e}")
+        await status_message.edit_text(
+            "❌ Error processing alerts.\n\n"
+            f"Error details: {str(e)}\n\n"
+            "Please check the logs for more information."
+        )
 
 async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                   status_message: "Message", scraper_manager) -> None:
