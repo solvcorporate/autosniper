@@ -631,8 +631,8 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="MARKDOWN"
         )
 
-async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manually trigger the scrapers to run (admin only)."""
+async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the alert system to send notifications (admin only)."""
     user = update.effective_user
     
     # Check if user is admin (for now, just a simple check - you might want to improve this)
@@ -646,7 +646,7 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Send initial message
     status_message = await update.message.reply_text(
-        "🔄 Starting scraper job...\n\n"
+        "🔄 Starting to process alerts...\n\n"
         "This may take a few minutes. I'll update you when it's done."
     )
     
@@ -655,7 +655,7 @@ async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Run the scraper job in a way that doesn't block the bot
     context.application.create_task(
-        run_scraper_job_background(update, context, status_message, scraper_manager)
+        process_alerts_background(update, context, status_message, scraper_manager)
     )
 
 async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
