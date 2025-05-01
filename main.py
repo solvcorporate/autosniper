@@ -16,6 +16,7 @@ from alerts import AlertEngine
 from payments import get_payment_manager
 from subscription import get_subscription_manager, SUBSCRIPTION_FEATURES
 from middleware import get_subscription_middleware
+from tutorials import get_tutorial_manager
 
 # Load environment variables
 load_dotenv()
@@ -102,6 +103,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             keyboard.append([InlineKeyboardButton("✨ Upgrade to Premium", callback_data="view_subscription")])
         
+        # Add tutorial button
+        keyboard.append([InlineKeyboardButton("📚 Tutorials & Guides", callback_data="tutorial_list")])
+        
         # Add help button
         keyboard.append([InlineKeyboardButton("❓ Help & FAQ", callback_data="view_help")])
         
@@ -164,6 +168,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/help - Show this help message\n"
         "/demo - View sample car alerts\n"
         "/faq - Frequently asked questions\n"
+        "/tutorial - Access interactive tutorials and guides\n"
         "/mycars - View and manage your car preferences\n"
         "/subscribe - View subscription options\n"
         "/subscribe_basic - Subscribe to Basic plan (€10/month)\n"
@@ -189,7 +194,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Additional info
     additional_info = (
         "You can cancel any ongoing setup process by typing 'cancel' at any point.\n\n"
-        
+        "📚 Use /tutorial to access interactive tutorials and guides.\n\n"
         "🚗 *Coming Soon:*\n"
         "• WhatsApp integration\n"
         "• Referral program\n\n"
@@ -211,6 +216,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_text = base_commands + "\n" + premium_commands + subscription_status + additional_info + support_info
     
     await update.message.reply_text(help_text, parse_mode="MARKDOWN")
+
+async def tutorial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show available tutorials."""
+    # Get the tutorial manager
+    tutorial_manager = get_tutorial_manager(sheets_manager)
+    
+    # Show the tutorial list
+    await tutorial_manager.show_tutorial_list(update, context)
 
 async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show realistic sample car alerts with explanation of the scoring system."""
@@ -290,7 +303,8 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Create keyboard for next steps
     keyboard = [
         [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")],
-        [InlineKeyboardButton("💰 View Subscription Options", callback_data="view_subscription")]
+        [InlineKeyboardButton("💰 View Subscription Options", callback_data="view_subscription")],
+        [InlineKeyboardButton("📚 View Tutorials", callback_data="tutorial_list")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -324,7 +338,7 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "A: We provide a direct link to the original listing and even suggest an initial message to send the seller. From there, you'll interact directly with the seller as you normally would.\n\n"
         
         "*Q: I need help setting up my preferences. What should I do?*\n"
-        "A: Use the /mycars command to start the guided setup process. If you run into any issues, you can type 'cancel' at any point and start over.\n\n"
+        "A: Use the /mycars command to start the guided setup process. If you run into any issues, you can type 'cancel' at any point and start over. We also have tutorials available via the /tutorial command.\n\n"
         
         "*Q: How many car preferences can I have active at once?*\n"
         "A: Free users can have 1 active preference, Basic subscribers can have up to 3, and Premium subscribers get unlimited preferences.\n\n"
@@ -335,7 +349,13 @@ async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "Have another question? Contact us at solvcorporate@gmail.com"
     )
     
-    await update.message.reply_text(faq_text, parse_mode="MARKDOWN")
+    # Add tutorial button
+    keyboard = [
+        [InlineKeyboardButton("📚 View Tutorials", callback_data="tutorial_list")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(faq_text, parse_mode="MARKDOWN", reply_markup=reply_markup)
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /subscribe command to manage subscription tiers."""
@@ -475,7 +495,8 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
     if tier == 'Basic':
         # Create keyboard for upgrading
         keyboard = [
-            [InlineKeyboardButton("Upgrade to Premium", callback_data="subscribe_premium")]
+            [InlineKeyboardButton("Upgrade to Premium", callback_data="subscribe_premium")],
+            [InlineKeyboardButton("📚 View Premium Features Tutorial", callback_data="start_tutorial_premium_features")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -487,9 +508,16 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
             reply_markup=reply_markup
         )
     else:
+        # Create keyboard for premium users
+        keyboard = [
+            [InlineKeyboardButton("📚 View Premium Features Tutorial", callback_data="start_tutorial_premium_features")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
             message,
-            parse_mode="MARKDOWN"
+            parse_mode="MARKDOWN",
+            reply_markup=reply_markup
         )
 
 @subscription_middleware.premium_required
@@ -635,96 +663,96 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     
     # Check if user is admin (for now, just a simple check - you might want to improve this)
-    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
-    
-    if not is_admin:
-        await update.message.reply_text(
-            "Sorry, this command is for administrators only."
-        )
-        return
-    
-    # Send initial message
-    status_message = await update.message.reply_text(
-        "🔄 Starting to process alerts...\n\n"
-        "This may take a few minutes. I'll update you when it's done."
-    )
-    
-    # Get the scraper manager
-    scraper_manager = get_scraper_manager()
-    
-    # Run the scraper job in a way that doesn't block the bot
-    context.application.create_task(
-        process_alerts_background(update, context, status_message, scraper_manager)
-    )
+   is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
+   
+   if not is_admin:
+       await update.message.reply_text(
+           "Sorry, this command is for administrators only."
+       )
+       return
+   
+   # Send initial message
+   status_message = await update.message.reply_text(
+       "🔄 Starting to process alerts...\n\n"
+       "This may take a few minutes. I'll update you when it's done."
+   )
+   
+   # Get the scraper manager
+   scraper_manager = get_scraper_manager()
+   
+   # Run the scraper job in a way that doesn't block the bot
+   context.application.create_task(
+       process_alerts_background(update, context, status_message, scraper_manager)
+   )
 
 async def process_alerts_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
-                                   status_message: "Message", scraper_manager) -> None:
-    """Process alert notifications in the background and update the status message."""
-    try:
-        # Get preferences from sheets
-        preferences = scraper_manager.get_preferences_from_sheets()
-        if not preferences:
-            await status_message.edit_text(
-                "❌ No user preferences found. Cannot process alerts."
-            )
-            return
-        
-        # Get all recent listings from sheets (implementation depends on your sheets structure)
-        # This is a placeholder - you'll need to implement this in your sheets_manager
-        listings = []
-        if scraper_manager.sheets_manager:
-            # Assuming a get_recent_listings method exists
-            try:
-                listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
-            except Exception as e:
-                logger.error(f"Error getting listings from sheets: {e}")
-        
-        if not listings:
-            # Run scrapers to get listings if none in sheets
-            listings = scraper_manager.run_scrapers(preferences)
-        
-        if not listings:
-            await status_message.edit_text(
-                "❌ No listings found. Cannot process alerts."
-            )
-            return
-        
-        # Match listings to preferences
-        matches = scraper_manager.match_listings_to_preferences(listings, preferences)
-        
-        if not matches:
-            await status_message.edit_text(
-                "ℹ️ No matches found between listings and user preferences."
-            )
-            return
-        
-        # Initialize the alert engine
-        alert_engine = AlertEngine(context.bot)
-        
-        # Process matches and send alerts
-        alert_stats = await alert_engine.process_matches(
-            matches, 
-            sheets_manager=scraper_manager.sheets_manager
-        )
-        
-        # Update the status message with the results
-        await status_message.edit_text(
-            "✅ Alert processing completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• {alert_stats['total_users']} users had matching listings\n"
-            f"• {alert_stats['total_matches']} total matches were found\n" 
-            f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
-            f"• {alert_stats['users_notified']} users received notifications\n"
-            f"• {alert_stats['failures']} failures occurred\n\n"
-            f"The system will automatically process alerts on the next scraper run."
-        )
-    except Exception as e:
-        logger.error(f"Error processing alerts: {e}")
-        await status_message.edit_text(
-            "❌ Error processing alerts.\n\n"
-            f"Error details: {str(e)}\n\n"
-            "Please check the logs for more information."
-        )
+                                  status_message: "Message", scraper_manager) -> None:
+   """Process alert notifications in the background and update the status message."""
+   try:
+       # Get preferences from sheets
+       preferences = scraper_manager.get_preferences_from_sheets()
+       if not preferences:
+           await status_message.edit_text(
+               "❌ No user preferences found. Cannot process alerts."
+           )
+           return
+       
+       # Get all recent listings from sheets (implementation depends on your sheets structure)
+       # This is a placeholder - you'll need to implement this in your sheets_manager
+       listings = []
+       if scraper_manager.sheets_manager:
+           # Assuming a get_recent_listings method exists
+           try:
+               listings = scraper_manager.sheets_manager.get_recent_listings(days=1)
+           except Exception as e:
+               logger.error(f"Error getting listings from sheets: {e}")
+       
+       if not listings:
+           # Run scrapers to get listings if none in sheets
+           listings = scraper_manager.run_scrapers(preferences)
+       
+       if not listings:
+           await status_message.edit_text(
+               "❌ No listings found. Cannot process alerts."
+           )
+           return
+       
+       # Match listings to preferences
+       matches = scraper_manager.match_listings_to_preferences(listings, preferences)
+       
+       if not matches:
+           await status_message.edit_text(
+               "ℹ️ No matches found between listings and user preferences."
+           )
+           return
+       
+       # Initialize the alert engine
+       alert_engine = AlertEngine(context.bot)
+       
+       # Process matches and send alerts
+       alert_stats = await alert_engine.process_matches(
+           matches, 
+           sheets_manager=scraper_manager.sheets_manager
+       )
+       
+       # Update the status message with the results
+       await status_message.edit_text(
+           "✅ Alert processing completed!\n\n"
+           f"📊 Statistics:\n"
+           f"• {alert_stats['total_users']} users had matching listings\n"
+           f"• {alert_stats['total_matches']} total matches were found\n" 
+           f"• {alert_stats['alerts_sent']} alerts were sent successfully\n"
+           f"• {alert_stats['users_notified']} users received notifications\n"
+           f"• {alert_stats['failures']} failures occurred\n\n"
+           f"The system will automatically process alerts on the next scraper run."
+       )
+   except Exception as e:
+       logger.error(f"Error processing alerts: {e}")
+       await status_message.edit_text(
+           "❌ Error processing alerts.\n\n"
+           f"Error details: {str(e)}\n\n"
+           "Please check the logs for more information."
+       )
 
 async def run_scraper_job_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                   status_message: "Message", scraper_manager) -> None:
@@ -865,6 +893,24 @@ async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
    
    elif callback_data == "start_car_setup":
        await start_car_setup_from_callback(update, context)
+
+   # Tutorial-related callbacks
+   elif callback_data.startswith("tutorial_"):
+       # Get the tutorial manager
+       tutorial_manager = get_tutorial_manager(sheets_manager)
+       
+       # Handle tutorial buttons
+       if callback_data == "tutorial_list":
+           await tutorial_manager.show_tutorial_list(update, context)
+       else:
+           await tutorial_manager.handle_tutorial_button(update, context)
+
+   elif callback_data.startswith("start_tutorial_"):
+       # Get the tutorial manager
+       tutorial_manager = get_tutorial_manager(sheets_manager)
+       
+       # Handle tutorial selection
+       await tutorial_manager.handle_tutorial_selection(update, context)
 
 async def onboard_how_it_works(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
    """Show new users how AutoSniper works."""
@@ -1076,6 +1122,7 @@ def main():
    application.add_handler(CommandHandler("help", help_command))
    application.add_handler(CommandHandler("demo", demo_command))
    application.add_handler(CommandHandler("faq", faq_command))
+   application.add_handler(CommandHandler("tutorial", tutorial_command))
    application.add_handler(CommandHandler("subscribe", subscribe_command))
    application.add_handler(CommandHandler("subscribebasic", subscribe_basic_command))
    application.add_handler(CommandHandler("subscribepremium", subscribe_premium_command))
