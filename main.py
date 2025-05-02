@@ -630,6 +630,32 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Sorry, there was an error retrieving the car details. Please try again later.",
             parse_mode="MARKDOWN"
         )
+        async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the scrapers to run (admin only)."""
+    user = update.effective_user
+    
+    # Check if user is admin
+    admin_id = 1566446879  # Replace with your actual Telegram ID
+    
+    if user.id != admin_id:
+        await update.message.reply_text(
+            "Sorry, this command is for administrators only."
+        )
+        return
+    
+    # Send initial message
+    status_message = await update.message.reply_text(
+        "🔄 Starting scraper job...\n\n"
+        "This may take a few minutes. I'll update you when it's done."
+    )
+    
+    # Get the scraper manager
+    scraper_manager = get_scraper_manager()
+    
+    # Run the scraper job in a way that doesn't block the bot
+    context.application.create_task(
+        run_scraper_job_background(update, context, status_message, scraper_manager)
+    )
 
 async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the alert system to send notifications (admin only)."""
