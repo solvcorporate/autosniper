@@ -217,12 +217,47 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     await update.message.reply_text(help_text, parse_mode="MARKDOWN")
 
+# Add tutorial suggestion button
+    keyboard = [
+        [InlineKeyboardButton("📚 View Tutorials", callback_data="tutorial_list")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(help_text, parse_mode="MARKDOWN", reply_markup=reply_markup)
+
 async def tutorial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show available tutorials."""
     # Get the tutorial manager
     tutorial_manager = get_tutorial_manager(sheets_manager)
     
-    # Show the tutorial list
+    # Check if a specific tutorial was requested
+    if context.args and len(context.args) > 0:
+        # Try to match the argument to a tutorial
+        requested_tutorial = context.args[0].lower()
+        
+        # Map common arguments to tutorial IDs
+        tutorial_map = {
+            "start": "getting_started",
+            "begin": "getting_started",
+            "premium": "premium_features",
+            "advanced": "advanced_search",
+            "search": "advanced_search",
+            "help": "troubleshooting",
+            "troubleshoot": "troubleshooting",
+            "faq": "troubleshooting"
+        }
+        
+        # Get the tutorial ID if it matches
+        tutorial_id = None
+        if requested_tutorial in tutorial_map:
+            tutorial_id = tutorial_map[requested_tutorial]
+        
+        # If we found a matching tutorial, start it
+        if tutorial_id:
+            await tutorial_manager.start_tutorial(update, context, tutorial_id)
+            return
+    
+    # If no specific tutorial was requested or found, show the list
     await tutorial_manager.show_tutorial_list(update, context)
 
 async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -390,10 +425,11 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "/subscribe_premium - Subscribe to the Premium Plan"
     )
     
-    # Create keyboard for subscription options
+# Create keyboard for subscription options
     keyboard = [
         [InlineKeyboardButton("Subscribe to Basic", callback_data="subscribe_basic")],
-        [InlineKeyboardButton("Subscribe to Premium", callback_data="subscribe_premium")]
+        [InlineKeyboardButton("Subscribe to Premium", callback_data="subscribe_premium")],
+        [InlineKeyboardButton("📚 Learn More About Premium", callback_data="start_tutorial_premium_features")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -508,9 +544,12 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
             reply_markup=reply_markup
         )
     else:
-        # Create keyboard for premium users
+
+# Create keyboard for premium users
         keyboard = [
-            [InlineKeyboardButton("📚 View Premium Features Tutorial", callback_data="start_tutorial_premium_features")]
+            [InlineKeyboardButton("📚 Premium Features Tutorial", callback_data="start_tutorial_premium_features")],
+            [InlineKeyboardButton("🔍 Advanced Search Tutorial", callback_data="start_tutorial_advanced_search")],
+            [InlineKeyboardButton("❓ Troubleshooting Guide", callback_data="start_tutorial_troubleshooting")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -920,23 +959,46 @@ async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
    elif callback_data == "start_car_setup":
        await start_car_setup_from_callback(update, context)
 
-   # Tutorial-related callbacks
-   elif callback_data.startswith("tutorial_"):
-       # Get the tutorial manager
-       tutorial_manager = get_tutorial_manager(sheets_manager)
-       
-       # Handle tutorial buttons
-       if callback_data == "tutorial_list":
-           await tutorial_manager.show_tutorial_list(update, context)
-       else:
-           await tutorial_manager.handle_tutorial_button(update, context)
+# Tutorial-related callbacks
+elif callback_data.startswith("tutorial_"):
+    # Get the tutorial manager
+    tutorial_manager = get_tutorial_manager(sheets_manager)
+    
+    # Handle tutorial buttons
+    if callback_data == "tutorial_list":
+        await tutorial_manager.show_tutorial_list(update, context)
+    else:
+        await tutorial_manager.handle_tutorial_button(update, context)
+        
+        # Track tutorial interaction in analytics if available
+        try:
+            if sheets_manager:
+                user_id = update.effective_user.id
+                tutorial_id = context.user_data.get('tutorial', {}).get('id')
+                if tutorial_id:
+                    # Could add analytics tracking here when implemented
+                    # sheets_manager.track_tutorial_interaction(user_id, tutorial_id, callback_data)
+                    pass
+        except Exception as e:
+            logger.error(f"Error tracking tutorial interaction: {e}")
 
-   elif callback_data.startswith("start_tutorial_"):
-       # Get the tutorial manager
-       tutorial_manager = get_tutorial_manager(sheets_manager)
-       
-       # Handle tutorial selection
-       await tutorial_manager.handle_tutorial_selection(update, context)
+elif callback_data.startswith("start_tutorial_"):
+    # Get the tutorial manager
+    tutorial_manager = get_tutorial_manager(sheets_manager)
+    
+    # Handle tutorial selection
+    await tutorial_manager.handle_tutorial_selection(update, context)
+    
+    # Track tutorial start in analytics if available
+    try:
+        if sheets_manager:
+            user_id = update.effective_user.id
+            tutorial_id = callback_data.split('_')[2]
+            # Could add analytics tracking here when implemented
+            # sheets_manager.track_tutorial_start(user_id, tutorial_id)
+            pass
+    except Exception as e:
+        logger.error(f"Error tracking tutorial start: {e}")
 
 async def onboard_how_it_works(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
    """Show new users how AutoSniper works."""
@@ -948,7 +1010,8 @@ async def onboard_how_it_works(update: Update, context: ContextTypes.DEFAULT_TYP
    # Create keyboard for next steps
    keyboard = [
        [InlineKeyboardButton("👀 See Sample Alerts", callback_data="onboard_sample_alerts")],
-       [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")]
+       [InlineKeyboardButton("🏁 Set Up My First Car", callback_data="onboard_setup_car")],
+       [InlineKeyboardButton("📚 View Detailed Tutorial", callback_data="start_tutorial_getting_started")]
    ]
    reply_markup = InlineKeyboardMarkup(keyboard)
    
@@ -1101,6 +1164,24 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
        "• Contact support at solvcorporate@gmail.com\n\n"
        "Thank you for your patience!"
    )
+    # Check if the error occurred in a tutorial
+   if update.callback_query and update.callback_query.data.startswith("tutorial_"):
+       try:
+           # Add suggestion to view troubleshooting tutorial
+           keyboard = [
+               [InlineKeyboardButton("View Troubleshooting Guide", callback_data="start_tutorial_troubleshooting")]
+           ]
+           reply_markup = InlineKeyboardMarkup(keyboard)
+           
+           # Add troubleshooting suggestion to error message
+           error_message += "\n\nWould you like to view our troubleshooting guide?"
+           
+           # Use reply_markup with the error message
+           if 'reply_markup' not in locals():
+               reply_markup = None
+       except Exception:
+           # If we hit an error while handling an error, just ignore it
+           pass
    
    # Try to send the error message
    try:
@@ -1134,6 +1215,86 @@ async def mycars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
    
    # The conversation handler will take over from here
 
+async def suggest_relevant_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE, situation: str) -> None:
+    """Suggest a relevant tutorial based on the user's situation.
+    
+    Args:
+        update: Update object
+        context: Context object
+        situation: String describing the user's situation or need
+    """
+    # Get the tutorial manager
+    tutorial_manager = get_tutorial_manager(sheets_manager)
+    
+    # Map situations to tutorial IDs
+    situation_map = {
+        "start": "getting_started",
+        "welcome": "getting_started",
+        "new_user": "getting_started",
+        "premium": "premium_features",
+        "subscription": "premium_features",
+        "search": "advanced_search",
+        "advanced": "advanced_search",
+        "error": "troubleshooting",
+        "problem": "troubleshooting",
+        "help": "troubleshooting"
+    }
+    
+    # Get the tutorial ID if it matches
+    tutorial_id = None
+    situation = situation.lower()
+    
+    for key, value in situation_map.items():
+        if key in situation:
+            tutorial_id = value
+            break
+    
+    # Default to getting started
+    if not tutorial_id:
+        tutorial_id = "getting_started"
+    
+    # Get the tutorial
+    tutorial = TUTORIALS.get(tutorial_id)
+    if not tutorial:
+        return  # Invalid tutorial ID
+    
+    # Create keyboard with tutorial option
+    keyboard = [
+        [InlineKeyboardButton(f"View {tutorial['title']} Tutorial", callback_data=f"start_tutorial_{tutorial_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Personalize the message based on the situation
+    if situation == "error" or situation == "problem":
+        message = (
+            "I noticed you encountered an issue. Would you like to view our troubleshooting guide?"
+        )
+    elif situation == "premium" or situation == "subscription":
+        message = (
+            "Want to learn more about Premium features? Check out our detailed tutorial!"
+        )
+    else:
+        message = (
+            f"💡 *Tutorial Suggestion*\n\n"
+            f"Would you like to learn more about {tutorial['title'].lower()}?"
+        )
+    
+    try:
+        if update.message:
+            await update.message.reply_text(
+                message,
+                parse_mode="MARKDOWN",
+                reply_markup=reply_markup
+            )
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(
+                message, 
+                parse_mode="MARKDOWN",
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        logger.error(f"Error suggesting tutorial: {e}")
+        
 def main():
    """Start the bot without using asyncio.run() which can cause issues in some environments"""
    # Create the Application and pass it your bot's token
