@@ -959,6 +959,8 @@ async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
    elif callback_data == "start_car_setup":
        await start_car_setup_from_callback(update, context)
 
+# End of previous elif block
+
     # Tutorial-related callbacks
 elif callback_data.startswith("tutorial_"):
 
