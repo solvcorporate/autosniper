@@ -630,7 +630,7 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Sorry, there was an error retrieving the car details. Please try again later.",
             parse_mode="MARKDOWN"
         )
-        async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the scrapers to run (admin only)."""
     user = update.effective_user
     
