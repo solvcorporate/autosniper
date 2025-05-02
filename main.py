@@ -711,32 +711,6 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.application.create_task(
         process_alerts_background(update, context, status_message, scraper_manager)
     )
-async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manually trigger the alert system to send notifications (admin only)."""
-    user = update.effective_user
-
-    # Check if user is admin (for now, just a simple check - you might want to improve this)
-    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
-
-    if not is_admin:
-        await update.message.reply_text(
-            "Sorry, this command is for administrators only."
-        )
-        return
-
-    # Send initial message
-    status_message = await update.message.reply_text(
-        "🔄 Starting to process alerts...\n\n"
-        "This may take a few minutes. I'll update you when it's done."
-    )
-
-    # Get the scraper manager
-    scraper_manager = get_scraper_manager()
-
-    # Run the scraper job in a way that doesn't block the bot
-    context.application.create_task(
-        process_alerts_background(update, context, status_message, scraper_manager)
-    )
 async def process_alerts_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                   status_message: "Message", scraper_manager) -> None:
    """Process alert notifications in the background and update the status message."""
