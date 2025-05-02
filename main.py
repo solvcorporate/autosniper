@@ -958,32 +958,65 @@ async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
    
    elif callback_data == "start_car_setup":
        await start_car_setup_from_callback(update, context)
+       
+   # Tutorial-related callbacks
+   elif callback_data.startswith("tutorial_"):
+       # Get the tutorial manager
+       tutorial_manager = get_tutorial_manager(sheets_manager)
+       
+       # Handle tutorial buttons
+       if callback_data == "tutorial_list":
+           await tutorial_manager.show_tutorial_list(update, context)
+       else:
+           await tutorial_manager.handle_tutorial_button(update, context)
+           
+           # Track tutorial interaction in analytics if available
+           try:
+               if sheets_manager:
+                   user_id = update.effective_user.id
+                   tutorial_id = context.user_data.get('tutorial', {}).get('id')
+                   if tutorial_id:
+                       # Could add analytics tracking here when implemented
+                       # sheets_manager.track_tutorial_interaction(user_id, tutorial_id, callback_data)
+                       pass
+           except Exception as e:
+               logger.error(f"Error tracking tutorial interaction: {e}")
 
-# End of previous elif block
+   elif callback_data.startswith("start_tutorial_"):
+       # Get the tutorial manager
+       tutorial_manager = get_tutorial_manager(sheets_manager)
+       
+       # Handle tutorial selection
+       await tutorial_manager.handle_tutorial_selection(update, context)
+       
+       # Track tutorial start in analytics if available
+       try:
+           if sheets_manager:
+               user_id = update.effective_user.id
+               tutorial_id = callback_data.split('_')[2]
+               # Could add analytics tracking here when implemented
+               # sheets_manager.track_tutorial_start(user_id, tutorial_id)
+               pass
+       except Exception as e:
+           logger.error(f"Error tracking tutorial start: {e}")
 
-    # Tutorial-related callbacks
-elif callback_data.startswith("tutorial_"):
-
-    # Get the tutorial manager
-    tutorial_manager = get_tutorial_manager(sheets_manager)
-    
-    # Handle tutorial buttons
-    if callback_data == "tutorial_list":
-        await tutorial_manager.show_tutorial_list(update, context)
-    else:
-        await tutorial_manager.handle_tutorial_button(update, context)
-        
-        # Track tutorial interaction in analytics if available
-        try:
-            if sheets_manager:
-                user_id = update.effective_user.id
-                tutorial_id = context.user_data.get('tutorial', {}).get('id')
-                if tutorial_id:
-                    # Could add analytics tracking here when implemented
-                    # sheets_manager.track_tutorial_interaction(user_id, tutorial_id, callback_data)
-                    pass
-        except Exception as e:
-            logger.error(f"Error tracking tutorial interaction: {e}")
+   elif callback_data.startswith("start_tutorial_"):
+       # Get the tutorial manager
+       tutorial_manager = get_tutorial_manager(sheets_manager)
+       
+       # Handle tutorial selection
+       await tutorial_manager.handle_tutorial_selection(update, context)
+       
+       # Track tutorial start in analytics if available
+       try:
+           if sheets_manager:
+               user_id = update.effective_user.id
+               tutorial_id = callback_data.split('_')[2]
+               # Could add analytics tracking here when implemented
+               # sheets_manager.track_tutorial_start(user_id, tutorial_id)
+               pass
+       except Exception as e:
+           logger.error(f"Error tracking tutorial start: {e}")
 
 elif callback_data.startswith("start_tutorial_"):
     # Get the tutorial manager
