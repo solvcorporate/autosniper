@@ -288,6 +288,94 @@ TUTORIALS = {
                 "image": None
             }
         ]
+    },
+    "troubleshooting": {
+        "title": "Troubleshooting & FAQ",
+        "description": "Common issues and how to resolve them.",
+        "steps": [
+            {
+                "title": "Common Issues & Solutions 🔧",
+                "content": (
+                    "This tutorial covers common issues you might encounter while using AutoSniper "
+                    "and how to resolve them quickly.\n\n"
+                    "Let's troubleshoot the most frequent questions users have."
+                ),
+                "image": None
+            },
+            {
+                "title": "No Alerts Received 🔕",
+                "content": (
+                    "If you're not receiving alerts, check:\n\n"
+                    "• *Car preferences*: Make sure you've set up preferences with /mycars\n"
+                    "• *Alert limits*: Free users (1/day), Basic (3/day), Premium (10/day)\n"
+                    "• *Notification settings*: Ensure Telegram notifications are enabled\n"
+                    "• *Bot status*: Try sending /start to verify the bot is responding\n\n"
+                    "Remember: AutoSniper only sends alerts when matching cars are found. If your criteria are very specific, it may take longer to find matches."
+                ),
+                "image": None
+            },
+            {
+                "title": "Car Setup Issues 🚗",
+                "content": (
+                    "If you're having trouble setting up car preferences:\n\n"
+                    "• Type 'cancel' at any point to reset the setup process\n"
+                    "• For make/model, try using common spellings (e.g., 'BMW' not 'B.M.W.')\n"
+                    "• Price and year ranges must use numbers only\n"
+                    "• Try selecting from the suggested options when available\n\n"
+                    "You can always view your current preferences with /mycars"
+                ),
+                "image": None
+            },
+            {
+                "title": "Subscription Problems 💳",
+                "content": (
+                    "For subscription-related issues:\n\n"
+                    "• Check your current status with /managesubscription\n"
+                    "• If payment was successful but subscription isn't active, try /start\n"
+                    "• For payment failures, retry with /subscribe\n"
+                    "• Allow a few minutes for your subscription to activate after payment\n\n"
+                    "If problems persist, contact support at solvcorporate@gmail.com with details of the issue."
+                ),
+                "image": None
+            },
+            {
+                "title": "Command Not Working ⚠️",
+                "content": (
+                    "If commands aren't responding correctly:\n\n"
+                    "• Ensure you're typing the command correctly with the '/' prefix\n"
+                    "• Check if the bot responded with an error message\n"
+                    "• Try /start to reset your conversation with the bot\n"
+                    "• For Premium commands, verify your subscription status\n\n"
+                    "Some commands may be temporarily unavailable during maintenance."
+                ),
+                "image": None
+            },
+            {
+                "title": "Missed a Great Deal? ⏱️",
+                "content": (
+                    "If you missed out on a deal:\n\n"
+                    "• Check alerts promptly - the best deals can go very quickly\n"
+                    "• Consider upgrading to Premium for priority notifications\n"
+                    "• Make sure your phone notifications for Telegram are enabled\n"
+                    "• Set up more flexible price/year ranges to catch more opportunities\n\n"
+                    "Premium users: Use /dealsofweek for additional opportunities."
+                ),
+                "image": None
+            },
+            {
+                "title": "Contact Support 📞",
+                "content": (
+                    "If you're still having issues:\n\n"
+                    "• Email: solvcorporate@gmail.com\n"
+                    "• Include your Telegram username\n"
+                    "• Describe the issue in detail\n"
+                    "• Mention any error messages received\n"
+                    "• Screenshot the problem if possible\n\n"
+                    "Our support team typically responds within 24 hours."
+                ),
+                "image": None
+            }
+        ]
     }
 }
 
@@ -326,6 +414,16 @@ class TutorialManager:
             'current_step': 0,
             'total_steps': len(tutorial['steps'])
         }
+        
+        # Record that the user started this tutorial
+        if self.sheets_manager:
+            try:
+                user_id = update.effective_user.id
+                # Track tutorial start in sheets - implementation depends on your structure
+                # self.sheets_manager.update_tutorial_started(user_id, tutorial_id)
+                self.logger.info(f"User {user_id} started tutorial: {tutorial_id}")
+            except Exception as e:
+                self.logger.error(f"Error tracking tutorial start: {e}")
         
         # Show the first step
         await self.show_tutorial_step(update, context)
@@ -447,8 +545,12 @@ class TutorialManager:
                 user_id = update.effective_user.id
                 tutorial_id = context.user_data['tutorial']['id']
                 
-                # Implement progress tracking in sheets if needed
-                # self.sheets_manager.update_tutorial_progress(user_id, tutorial_id, completed=True)
+                # Record tutorial completion in sheets
+                try:
+                    # self.sheets_manager.update_tutorial_completed(user_id, tutorial_id)
+                    self.logger.info(f"User {user_id} completed tutorial: {tutorial_id}")
+                except Exception as e:
+                    self.logger.error(f"Error tracking tutorial completion: {e}")
             
             # Clear the tutorial data
             tutorial_id = context.user_data['tutorial']['id']
@@ -493,9 +595,15 @@ class TutorialManager:
         keyboard = []
         
         for tutorial_id, tutorial in TUTORIALS.items():
+            # Check if user has completed this tutorial before
+            completed = self._is_tutorial_completed(update.effective_user.id, tutorial_id)
+            
+            # Add checkmark for completed tutorials
+            title = f"{tutorial['title']} {'✅' if completed else '📚'}"
+            
             keyboard.append([
                 InlineKeyboardButton(
-                    f"{tutorial['title']} 📚",
+                    title,
                     callback_data=f"start_tutorial_{tutorial_id}"
                 )
             ])
@@ -528,6 +636,29 @@ class TutorialManager:
                 reply_markup=reply_markup
             )
     
+    def _is_tutorial_completed(self, user_id: int, tutorial_id: str) -> bool:
+        """Check if a user has completed a specific tutorial.
+        
+        Args:
+            user_id: User ID
+            tutorial_id: Tutorial ID
+            
+        Returns:
+            bool: True if tutorial has been completed, False otherwise
+        """
+        # Check completion status in context if available
+        if self.sheets_manager:
+            try:
+                # Implementation depends on your sheets structure
+                # return self.sheets_manager.get_tutorial_completion(user_id, tutorial_id)
+                pass
+            except Exception as e:
+                self.logger.error(f"Error checking tutorial completion: {e}")
+        
+        # For now, just return False (not completed)
+        # This will be replaced with actual tracking when sheets integration is implemented
+        return False
+    
     async def handle_tutorial_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle tutorial selection from the list.
         
@@ -543,6 +674,66 @@ class TutorialManager:
         
         # Start the selected tutorial
         await self.start_tutorial(update, context, tutorial_id)
+    
+    async def suggest_tutorial(self, update: Update, context: ContextTypes.DEFAULT_TYPE, suggested_tutorial_id: str) -> None:
+        """Suggest a specific tutorial based on user context.
+        
+        Args:
+            update: Update object
+            context: Context object
+            suggested_tutorial_id: ID of the tutorial to suggest
+        """
+        if suggested_tutorial_id not in TUTORIALS:
+            return  # Invalid tutorial ID
+        
+        tutorial = TUTORIALS[suggested_tutorial_id]
+        
+        # Create keyboard with tutorial option
+        keyboard = [
+            [InlineKeyboardButton(f"View {tutorial['title']} Tutorial", callback_data=f"start_tutorial_{suggested_tutorial_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"💡 *Tutorial Suggestion*\n\n"
+            f"Want to learn more about this? We have a tutorial on {tutorial['title']} that might help.",
+            parse_mode="MARKDOWN",
+            reply_markup=reply_markup
+        )
+    
+    def get_suggested_tutorial_id(self, command: str) -> Optional[str]:
+        """Get a suggested tutorial ID based on the command or context.
+        
+        Args:
+            command: Command or context string
+            
+        Returns:
+            Optional[str]: Tutorial ID or None if no suitable tutorial found
+        """
+        command = command.lower()
+        
+        # Map commands to relevant tutorials
+        command_tutorial_map = {
+            "start": "getting_started",
+            "mycars": "getting_started",
+            "subscribe": "premium_features",
+            "dealsofweek": "premium_features",
+            "error": "troubleshooting",
+            "help": "getting_started",
+            "advanced": "advanced_search"
+        }
+        
+        # Check for exact matches
+        if command in command_tutorial_map:
+            return command_tutorial_map[command]
+        
+        # Check for partial matches
+        for cmd, tutorial_id in command_tutorial_map.items():
+            if cmd in command:
+                return tutorial_id
+        
+        # Default to getting started
+        return "getting_started"
 
 
 # Helper function to get a tutorial manager instance
