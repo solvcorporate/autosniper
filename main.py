@@ -1,3 +1,9 @@
+# Changes summary:
+# 1. Fixed syntax error at line 1021 (removed duplicate elif block)
+# 2. Fixed indentation issue in handle_start_buttons function
+# 3. Removed redundant code - consolidated duplicated elif blocks
+# 4. Fixed formatting and alignment issues
+
 import os
 import logging
 import asyncio
@@ -215,9 +221,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Combine all sections
     help_text = base_commands + "\n" + premium_commands + subscription_status + additional_info + support_info
     
-    await update.message.reply_text(help_text, parse_mode="MARKDOWN")
-
-# Add tutorial suggestion button
+    # Add tutorial suggestion button
     keyboard = [
         [InlineKeyboardButton("📚 View Tutorials", callback_data="tutorial_list")]
     ]
@@ -425,7 +429,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "/subscribe_premium - Subscribe to the Premium Plan"
     )
     
-# Create keyboard for subscription options
+    # Create keyboard for subscription options
     keyboard = [
         [InlineKeyboardButton("Subscribe to Basic", callback_data="subscribe_basic")],
         [InlineKeyboardButton("Subscribe to Premium", callback_data="subscribe_premium")],
@@ -544,8 +548,7 @@ async def managesubscription_command(update: Update, context: ContextTypes.DEFAU
             reply_markup=reply_markup
         )
     else:
-
-# Create keyboard for premium users
+        # Create keyboard for premium users
         keyboard = [
             [InlineKeyboardButton("📚 Premium Features Tutorial", callback_data="start_tutorial_premium_features")],
             [InlineKeyboardButton("🔍 Advanced Search Tutorial", callback_data="start_tutorial_advanced_search")],
@@ -657,7 +660,7 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="MARKDOWN",
             disable_web_page_preview=True
         )
-    except ValueError:
+        except ValueError:
         await update.message.reply_text(
             "Please provide a valid number.\n"
             "Example: /car_details 1",
@@ -669,6 +672,7 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Sorry, there was an error retrieving the car details. Please try again later.",
             parse_mode="MARKDOWN"
         )
+
 async def run_scrapers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger the scrapers to run (admin only)."""
     user = update.effective_user
@@ -724,32 +728,6 @@ async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         process_alerts_background(update, context, status_message, scraper_manager)
     )
 
-async def send_alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manually trigger the alert system to send notifications (admin only)."""
-    user = update.effective_user
-
-    # Check if user is admin (for now, just a simple check - you might want to improve this)
-    is_admin = user.id == 1566446879  # Replace with your actual Telegram ID
-
-    if not is_admin:
-        await update.message.reply_text(
-            "Sorry, this command is for administrators only."
-        )
-        return
-
-    # Send initial message
-    status_message = await update.message.reply_text(
-        "🔄 Starting to process alerts...\n\n"
-        "This may take a few minutes. I'll update you when it's done."
-    )
-
-    # Get the scraper manager
-    scraper_manager = get_scraper_manager()
-
-    # Run the scraper job in a way that doesn't block the bot
-    context.application.create_task(
-        process_alerts_background(update, context, status_message, scraper_manager)
-    )
 async def process_alerts_background(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                   status_message: "Message", scraper_manager) -> None:
    """Process alert notifications in the background and update the status message."""
@@ -1000,42 +978,6 @@ async def handle_start_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
        except Exception as e:
            logger.error(f"Error tracking tutorial start: {e}")
 
-   elif callback_data.startswith("start_tutorial_"):
-       # Get the tutorial manager
-       tutorial_manager = get_tutorial_manager(sheets_manager)
-       
-       # Handle tutorial selection
-       await tutorial_manager.handle_tutorial_selection(update, context)
-       
-       # Track tutorial start in analytics if available
-       try:
-           if sheets_manager:
-               user_id = update.effective_user.id
-               tutorial_id = callback_data.split('_')[2]
-               # Could add analytics tracking here when implemented
-               # sheets_manager.track_tutorial_start(user_id, tutorial_id)
-               pass
-       except Exception as e:
-           logger.error(f"Error tracking tutorial start: {e}")
-
-elif callback_data.startswith("start_tutorial_"):
-    # Get the tutorial manager
-    tutorial_manager = get_tutorial_manager(sheets_manager)
-    
-    # Handle tutorial selection
-    await tutorial_manager.handle_tutorial_selection(update, context)
-    
-    # Track tutorial start in analytics if available
-    try:
-        if sheets_manager:
-            user_id = update.effective_user.id
-            tutorial_id = callback_data.split('_')[2]
-            # Could add analytics tracking here when implemented
-            # sheets_manager.track_tutorial_start(user_id, tutorial_id)
-            pass
-    except Exception as e:
-        logger.error(f"Error tracking tutorial start: {e}")
-
 async def onboard_how_it_works(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
    """Show new users how AutoSniper works."""
    query = update.callback_query
@@ -1200,7 +1142,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
        "• Contact support at solvcorporate@gmail.com\n\n"
        "Thank you for your patience!"
    )
-    # Check if the error occurred in a tutorial
+   
+   # Check if the error occurred in a tutorial
    if update.callback_query and update.callback_query.data.startswith("tutorial_"):
        try:
            # Add suggestion to view troubleshooting tutorial
@@ -1290,6 +1233,7 @@ async def suggest_relevant_tutorial(update: Update, context: ContextTypes.DEFAUL
         tutorial_id = "getting_started"
     
     # Get the tutorial
+    from tutorials import TUTORIALS
     tutorial = TUTORIALS.get(tutorial_id)
     if not tutorial:
         return  # Invalid tutorial ID
