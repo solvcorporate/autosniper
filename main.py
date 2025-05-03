@@ -660,7 +660,7 @@ async def car_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="MARKDOWN",
             disable_web_page_preview=True
         )
-        except ValueError:
+    except ValueError:
         await update.message.reply_text(
             "Please provide a valid number.\n"
             "Example: /car_details 1",
